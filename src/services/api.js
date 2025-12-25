@@ -9,8 +9,8 @@ export const LICENSE_KEY = 'oled_matflow_license';
 export const USERS_DB_KEY = 'oled_users';
 export const INVENTORY_DB_KEY = 'oled_global_inventory';
 
-// 백엔드 기본 주소 (본인의 서버 IP로 수정하세요)
-const BACKEND_URL = 'http://192.168.123.121:3000/api';
+// 백엔드 기본 주소 (사용자님의 실제 서버 IP와 포트 5000으로 설정)
+const BACKEND_URL = 'http://192.168.123.121:5000/api';
 
 // 날짜 차이 계산 헬퍼
 const getDaysDifference = (dateString) => {
@@ -22,7 +22,7 @@ const getDaysDifference = (dateString) => {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
-// 백엔드 호출 공통 함수 (에러 발생 시 null 반환하여 로컬 저장 유도)
+// 백엔드 호출 공통 함수 (서버가 꺼져있으면 null 반환하여 로컬 저장 유도)
 const fetchWithErrorHandling = async (url, options) => {
     try {
         const response = await fetch(url, options);
@@ -39,7 +39,6 @@ export const api = {
         getAll: async () => {
             const data = await fetchWithErrorHandling(`${BACKEND_URL}/users`, { method: 'GET' });
             if (data) return data;
-            // 서버 실패 시 로컬스토리지 사용
             try { return JSON.parse(localStorage.getItem(USERS_DB_KEY) || '[]'); } 
             catch { return []; }
         },
@@ -49,7 +48,6 @@ export const api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
-            // 서버 저장 성공 시 return, 실패 시 로컬스토리지 저장
             if (result) return result;
             return localStorage.setItem(USERS_DB_KEY, JSON.stringify(data));
         },
@@ -84,27 +82,18 @@ export const api = {
                 return [];
             }
         },
-<<<<<<< HEAD
-            saveAll: async (data) => {
-    const response = await fetch('http://[서버IP]:5000/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-    });
-    return response.json();
-}
-=======
         saveAll: async (data) => {
+            // 서버(MariaDB) 저장 시도
             const result = await fetchWithErrorHandling(`${BACKEND_URL}/materials`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(data)
             });
+            
             if (result) return result;
             
-            // 서버 실패 시 로컬에 저장
+            // 서버 실패 시 로컬스토리지에 백업 저장
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
->>>>>>> b0ad74a34279bd004346e10b1d89009268f0f422
             return true;
         }
     },
