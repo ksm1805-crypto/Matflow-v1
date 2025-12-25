@@ -1,0 +1,2 @@
+export const fmtK = (v) => new Intl.NumberFormat('ko-KR', { style: 'decimal', maximumFractionDigits: 0 }).format(v);
+export const fmtN = (v, d=2) => new Intl.NumberFormat('en-US', { maximumFractionDigits: d }).format(v);
