@@ -47,8 +47,14 @@ export const api = {
                 return [];
             }
         },
-        saveAll: async (data) => {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            saveAll: async (data) => {
+    const response = await fetch('http://[서버IP]:5000/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+    });
+    return response.json();
+}
             return true;
         }
     },
