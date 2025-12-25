@@ -15,7 +15,7 @@ export const ThermalTab = ({ material, updateMaterial, readOnly }) => {
     
     const updateResidue = (id, f, v) => { if(!readOnly) updateMaterial({ ...material, residueData: residueData.map(r => r.id===id ? {...r, [f]:v} : r) }); };
     
-    const removeResidue = (id) => { if(!readOnly && confirm("Delete?")) updateMaterial({ ...material, residueData: residueData.filter(r => r.id !== id) }); };
+    const removeResidue = (id) => { if(!readOnly && window.confirm("Delete?")) updateMaterial({ ...material, residueData: residueData.filter(r => r.id !== id) }); };
 
     return (
         <div className="p-6 space-y-6">

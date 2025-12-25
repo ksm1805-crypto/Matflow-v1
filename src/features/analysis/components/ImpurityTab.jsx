@@ -41,7 +41,7 @@ export const ImpurityTab = ({ material, updateMaterial, readOnly }) => {
     };
 
     const removePeak = (index) => { 
-        if(confirm("Delete this peak column? This will remove corresponding data from ALL lots.")) { 
+        if(window.confirm("Delete this peak column? This will remove corresponding data from ALL lots.")) { 
             const newPeaks = peaks.filter((_, i) => i !== index); 
             updateGlobal(newPeaks, 'DELETE', index); 
         } 

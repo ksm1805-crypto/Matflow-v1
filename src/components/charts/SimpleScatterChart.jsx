@@ -1,32 +1,38 @@
 import React, { useMemo } from 'react';
 
 export const SimpleScatterChart = ({ data, xKey, xLabel, yLabel, width = 600, height = 400 }) => {
-    // 1. 데이터가 없으면 표시 안 함
+    // [규칙 수정 1] 훅(useMemo)은 어떤 조건문(if)보다도 무조건 위에 있어야 합니다.
+    const clipId = useMemo(() => "chart-clip-" + Math.random().toString(36).substr(2, 9), []);
+
+    // [규칙 수정 2] 데이터 가공 로직도 가급적 훅 안으로 넣거나, 훅 다음에 위치시킵니다.
+    // 1. 데이터 유효성 검사 및 필터링
+    const validData = useMemo(() => {
+        if (!data || !Array.isArray(data)) return [];
+        return data.filter(d => {
+            const x = parseFloat(d[xKey]);
+            const y = parseFloat(d.lifetime);
+            return !isNaN(x) && isFinite(x) && !isNaN(y) && isFinite(y);
+        });
+    }, [data, xKey]);
+
+    // 2. 데이터가 없을 경우의 Early Return (훅들보다 아래에 위치)
     if (!data || data.length === 0) return <div className="flex h-full items-center justify-center text-slate-400">No Data</div>;
-
-    // 2. [핵심 수정] 유효한 숫자 데이터만 필터링 (NaN, Infinity 방지)
-    const validData = data.filter(d => {
-        const x = parseFloat(d[xKey]);
-        const y = parseFloat(d.lifetime);
-        return !isNaN(x) && isFinite(x) && !isNaN(y) && isFinite(y);
-    });
-
     if (validData.length === 0) return <div className="flex h-full items-center justify-center text-slate-400">Invalid Data</div>;
 
-    const xValues = validData.map(d => d[xKey]);
-    const yValues = validData.map(d => d.lifetime);
+    // --- 여기서부터는 기존 로직 그대로 유지 ---
+    const xValues = validData.map(d => parseFloat(d[xKey]));
+    const yValues = validData.map(d => parseFloat(d.lifetime));
     
-    // 3. 범위 계산 (모든 값이 같을 때를 대비한 안전장치)
     let xMin = Math.min(...xValues);
     let xMax = Math.max(...xValues);
-    if (xMin === xMax) { xMin -= 1; xMax += 1; } // 강제로 범위 벌림
+    if (xMin === xMax) { xMin -= 1; xMax += 1; }
     xMin *= 0.95; xMax *= 1.05;
 
     let yMin = Math.min(...yValues);
     let yMax = Math.max(...yValues);
     if (yMin === yMax) { yMin -= 1; yMax += 1; }
     yMin *= 0.95; yMax *= 1.05;
-    if (yMax < 100) yMax = 105; // 기본 상한 보정
+    if (yMax < 100) yMax = 105;
 
     const padding = 40;
     const plotW = width - padding * 2;
@@ -38,12 +44,12 @@ export const SimpleScatterChart = ({ data, xKey, xLabel, yLabel, width = 600, he
     const getX = (val) => padding + ((val - xMin) / xRange) * plotW;
     const getY = (val) => height - padding - ((val - yMin) / yRange) * plotH;
 
-    // 4. 선형 회귀(Linear Regression) 계산 (분모 0 방지)
+    // 4. 선형 회귀 계산
     const n = validData.length;
     const sumX = xValues.reduce((a, b) => a + b, 0);
     const sumY = yValues.reduce((a, b) => a + b, 0);
-    const sumXY = validData.reduce((a, b) => a + (b[xKey] * b.lifetime), 0);
-    const sumXX = validData.reduce((a, b) => a + (b[xKey] * b[xKey]), 0);
+    const sumXY = validData.reduce((a, b) => a + (parseFloat(b[xKey]) * parseFloat(b.lifetime)), 0);
+    const sumXX = validData.reduce((a, b) => a + (parseFloat(b[xKey]) * parseFloat(b[xKey])), 0);
     
     const slopeDenom = (n * sumXX - sumX * sumX);
     const slope = slopeDenom === 0 ? 0 : (n * sumXY - sumX * sumY) / slopeDenom;
@@ -56,8 +62,6 @@ export const SimpleScatterChart = ({ data, xKey, xLabel, yLabel, width = 600, he
 
     const machineErrorUpper = getY(103);
     const machineErrorLower = getY(97);
-
-    const clipId = useMemo(() => "chart-clip-" + Math.random().toString(36).substr(2, 9), []);
 
     return (
         <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
@@ -93,12 +97,9 @@ export const SimpleScatterChart = ({ data, xKey, xLabel, yLabel, width = 600, he
             {validData.map((d, i) => {
                 const cx = getX(d[xKey]);
                 const cy = getY(d.lifetime);
-                // 좌표 유효성 재확인
                 if (!isFinite(cx) || !isFinite(cy)) return null;
 
                 const isErrorRange = d.lifetime >= 97 && d.lifetime <= 103;
-                
-                // 그래프 영역 밖으로 나가는 점 숨김
                 if (cx < padding || cx > width - padding || cy < padding || cy > height - padding) return null;
 
                 return (

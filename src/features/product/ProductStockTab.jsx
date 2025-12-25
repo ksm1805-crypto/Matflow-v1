@@ -11,7 +11,7 @@ export const ProductStockTab = ({ material, updateMaterial, readOnly }) => {
     
     const updateShipment = (lot, shipmentId, field, val) => { if(!readOnly) updateLot(lot.id, { ...lot, shipments: lot.shipments.map(s => s.id === shipmentId ? { ...s, [field]: val } : s) }); };
     
-    const removeShipment = (lot, shipmentId) => { if(!readOnly && confirm("Delete?")) updateLot(lot.id, { ...lot, shipments: lot.shipments.filter(s => s.id !== shipmentId) }); };
+    const removeShipment = (lot, shipmentId) => { if(!readOnly && window.confirm("Delete?")) updateLot(lot.id, { ...lot, shipments: lot.shipments.filter(s => s.id !== shipmentId) }); };
 
     // [핵심] 고정비율은 Project 레벨에서 관리
     const fixedRatio = parseFloat(material.salesParams?.fixedRatio) || 0;

@@ -21,7 +21,7 @@ export const MethodTab = ({ material, updateMaterial, readOnly }) => {
 
     const updateMethod = (id, field, val) => { if (readOnly) return; updateMaterial({ ...material, methods: methods.map(m => m.id === id ? { ...m, [field]: val } : m) }); };
     const addVersion = () => { if (readOnly) return; const base = methods.length > 0 ? JSON.parse(JSON.stringify(methods[methods.length-1])) : {}; updateMaterial({ ...material, methods: [...methods, { ...base, id: generateId(), version: `v${methods.length+1}`, updatedAt: new Date().toISOString().slice(0,10), gradient: base.gradient || [{time:0, b:10}, {time:20, b:90}, {time:25, b:90}, {time:25.1, b:10}, {time:30, b:10}] }] }); };
-    const removeVersion = (id) => { if(readOnly) return; if(!confirm("Delete?")) return; const n = methods.filter(m => m.id !== id); updateMaterial({ ...material, methods: n }); if(activeVersionId === id) setActiveVersionId(n.length>0?n[n.length-1].id:null); };
+    const removeVersion = (id) => { if(readOnly) return; if(!window.confirm("Delete?")) return; const n = methods.filter(m => m.id !== id); updateMaterial({ ...material, methods: n }); if(activeVersionId === id) setActiveVersionId(n.length>0?n[n.length-1].id:null); };
     const updateGradient = (id, idx, f, v) => { if(readOnly) return; updateMethod(id, 'gradient', activeMethod.gradient.map((r,i)=>i===idx?{...r,[f]:v}:r)); };
     const addGrad = () => { if(readOnly) return; updateMethod(activeMethod.id, 'gradient', [...activeMethod.gradient, {time:'',b:''}]); };
     const delGrad = (idx) => { if(readOnly) return; updateMethod(activeMethod.id, 'gradient', activeMethod.gradient.filter((_,i)=>i!==idx)); };

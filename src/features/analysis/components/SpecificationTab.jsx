@@ -15,7 +15,7 @@ export const SpecificationTab = ({ material, updateMaterial, readOnly }) => {
     };
 
     const removeMetal = (el) => {
-        if (!confirm(`Delete ${el}?`)) return;
+        if (!window.confirm(`Delete ${el}?`)) return;
         updateMaterial({...material, specification: {...spec, metalElements: spec.metalElements.filter(x => x !== el)}});
     };
 
