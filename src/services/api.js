@@ -10,7 +10,7 @@ export const USERS_DB_KEY = 'oled_users';
 export const INVENTORY_DB_KEY = 'oled_global_inventory';
 
 // 백엔드 기본 주소 (사용자님의 실제 서버 IP와 포트 5000으로 설정)
-const BACKEND_URL = 'http://192.168.123.121:3000/api';
+const BACKEND_URL = 'http://192.168.123.121:5000/api';
 
 // 날짜 차이 계산 헬퍼
 const getDaysDifference = (dateString) => {
