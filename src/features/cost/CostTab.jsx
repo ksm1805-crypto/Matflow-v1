@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { Card } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { calculateLotMetrics, recalculateMols } from '../../utils/math';
 import { fmtK, fmtN } from '../../utils/format';

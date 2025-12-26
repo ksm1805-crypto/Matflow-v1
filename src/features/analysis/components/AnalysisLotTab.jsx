@@ -4,7 +4,6 @@ import { Icon } from '../../../components/ui/Icon';
 import { ExcelGrid } from '../../../components/ui/ExcelGrid';
 import { ImageUploader } from '../../../components/ui/ImageUploader';
 import { FileUploader } from '../../../components/ui/FileUploader';
-import { generateId } from '../../../utils/math';
 import { sanitizeLot } from '../../../utils/sanitize';
 import { STANDARD_METALS } from '../../../constants';
 
@@ -13,30 +12,121 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
     const [viewMode, setViewMode] = useState('chemical');
     const [activeGridTab, setActiveGridTab] = useState('main');
 
-    useEffect(() => { if (!activeLotId && material.lots.length > 0) setActiveLotId(material.lots[0].id); }, [material.lots, activeLotId]);
+    useEffect(() => { 
+        if (!activeLotId && material.lots.length > 0) setActiveLotId(material.lots[0].id); 
+    }, [material.lots, activeLotId]);
     
     const activeLot = material.lots.find(l => l.id === activeLotId);
     const metalElements = material.specification?.metalElements || STANDARD_METALS;
 
-    const updateLot = (key, val) => { if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === activeLotId ? { ...l, [key]: val } : l) }); };
+    const updateLot = (key, val) => { 
+        if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === activeLotId ? { ...l, [key]: val } : l) }); 
+    };
     
-    // [추가] RRT 자동 계산 로직
+    // [핵심] Base64 문자열을 Blob 객체(가상 파일)로 변환하는 함수
+    // 이것이 있어야 PDF가 Blank 없이 제대로 열립니다.
+    const base64ToBlob = (base64, mimeType = 'application/pdf') => {
+        try {
+            // Data URI 헤더가 있다면 제거 (ex: "data:application/pdf;base64,")
+            const base64Clean = base64.includes(',') ? base64.split(',')[1] : base64;
+            
+            const byteCharacters = atob(base64Clean);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            return new Blob([byteArray], { type: mimeType });
+        } catch (e) {
+            console.error("Blob conversion failed:", e);
+            return null;
+        }
+    };
+
+    // [핵심] 파일 리스트 렌더링 및 PDF 열기 로직
+    const renderFileList = (files, updateFilesKey) => {
+        const fileList = Array.isArray(files) ? files : [];
+        if (fileList.length === 0) return null;
+
+        const handleDelete = (index) => {
+            if (readOnly) return;
+            const newFiles = fileList.filter((_, i) => i !== index);
+            updateLot(updateFilesKey, newFiles);
+        };
+
+        const handleFileClick = (file) => {
+            const fileUrl = file.data || file.src || file.url;
+            
+            if (fileUrl) {
+                const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
+                
+                if (isPdf) {
+                    // PDF 처리: Blob으로 변환하여 새 탭에서 열기
+                    const blob = base64ToBlob(fileUrl, 'application/pdf');
+                    if (blob) {
+                        const blobUrl = URL.createObjectURL(blob);
+                        window.open(blobUrl, '_blank');
+                    } else {
+                        alert("PDF 파일을 여는 데 실패했습니다.");
+                    }
+                } else {
+                    // 이미지 처리: 기존 방식 (새 창에 이미지 태그 쓰기)
+                    const newWindow = window.open();
+                    if (newWindow) {
+                         newWindow.document.write(
+                            `<title>${file.name}</title>
+                             <body style="margin:0; display:flex; justify-content:center; align-items:center; background:#f5f5f5;">
+                                <img src='${fileUrl}' style='max-width:100%; max-height:100vh;' />
+                             </body>`
+                        );
+                    }
+                }
+            }
+        };
+
+        return (
+            <div className="mt-2 space-y-1 relative block">
+                {fileList.map((file, index) => (
+                    <div 
+                        key={index} 
+                        className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded text-xs group hover:shadow-md transition cursor-pointer" 
+                        onClick={() => handleFileClick(file)}
+                    >
+                        <div className="flex items-center gap-2 overflow-hidden flex-1">
+                            <Icon 
+                                name={file.name?.toLowerCase().endsWith('.pdf') ? 'file-text' : 'image'} 
+                                size={14} 
+                                className={file.name?.toLowerCase().endsWith('.pdf') ? "text-rose-500" : "text-blue-500"}
+                            />
+                            <span className="text-slate-700 truncate font-medium hover:underline">
+                                {file.name || `File ${index + 1}`}
+                            </span>
+                        </div>
+                        {!readOnly && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleDelete(index); }} 
+                                className="text-slate-400 hover:text-rose-500 p-1"
+                            >
+                                <Icon name="x" size={14}/>
+                            </button>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    // RRT 계산 로직
     const calculateGridRRT = (gridData) => {
-        // 데이터가 없거나 기본 구조(Header, RT, RRT, Content)가 아니면 패스
         if (!gridData || gridData.length < 4) return gridData;
-
-        // 원본 불변성 유지를 위해 복사
         const newData = gridData.map(row => [...row]);
+        const rtRowIndex = 1;
+        const rrtRowIndex = 2;
+        const contentRowIndex = 3;
 
-        const rtRowIndex = 1;      // RT 행
-        const rrtRowIndex = 2;     // RRT 행 (계산 대상)
-        const contentRowIndex = 3; // Content 행 (Main Peak 찾기용)
-
-        // 1. Main Peak 찾기 (Content가 가장 높은 피크)
         let mainPeakColIndex = -1;
         let maxContent = -1;
 
-        // 컬럼 1부터 시작 (0은 라벨)
         for (let c = 1; c < newData[contentRowIndex].length; c++) {
             const content = parseFloat(newData[contentRowIndex][c]) || 0;
             if (content > maxContent) {
@@ -45,24 +135,22 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
             }
         }
 
-        // 2. 기준 RT 가져오기
         const mainRT = parseFloat(newData[rtRowIndex][mainPeakColIndex]) || 0;
 
-        // 3. RRT 계산 (현재 RT / 기준 RT)
         if (mainRT > 0) {
             for (let c = 1; c < newData[rrtRowIndex].length; c++) {
                 const currentRT = parseFloat(newData[rtRowIndex][c]);
                 if (!isNaN(currentRT) && currentRT > 0) {
-                    newData[rrtRowIndex][c] = (currentRT / mainRT).toFixed(2); // 소수점 2자리
+                    newData[rrtRowIndex][c] = (currentRT / mainRT).toFixed(2);
                 } else {
-                    newData[rrtRowIndex][c] = ''; // RT 없으면 빈값
+                    newData[rrtRowIndex][c] = '';
                 }
             }
         }
-
         return newData;
     };
 
+    // Mix Preset 설정
     const setMixPreset = (type) => {
         if (readOnly) return;
         if (type === 'PPN') {
@@ -131,9 +219,16 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         <div className="flex h-full bg-slate-50">
             {/* Sidebar */}
             <div className="w-64 border-r border-slate-200 bg-white flex flex-col">
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center"><span className="font-bold text-xs text-slate-500">SELECT LOT</span>{!readOnly && <button onClick={addLot} className="text-brand-600 hover:bg-brand-50 rounded p-1"><Icon name="plus" size={14}/></button>}</div>
+                <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                    <span className="font-bold text-xs text-slate-500">SELECT LOT</span>
+                    {!readOnly && <button onClick={addLot} className="text-brand-600 hover:bg-brand-50 rounded p-1"><Icon name="plus" size={14}/></button>}
+                </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                    {material.lots.map(l => (<div key={l.id} onClick={() => setActiveLotId(l.id)} className={`p-3 rounded-lg text-sm cursor-pointer flex justify-between ${activeLotId === l.id ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200' : 'text-slate-600 hover:bg-slate-100'}`}>{l.name}</div>))}
+                    {material.lots.map(l => (
+                        <div key={l.id} onClick={() => setActiveLotId(l.id)} className={`p-3 rounded-lg text-sm cursor-pointer flex justify-between ${activeLotId === l.id ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200' : 'text-slate-600 hover:bg-slate-100'}`}>
+                            {l.name}
+                        </div>
+                    ))}
                 </div>
             </div>
             
@@ -142,7 +237,10 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                 {activeLot ? (
                     <>
                         <div className="flex justify-between items-end pb-4 border-b border-slate-200">
-                            <div><label className="text-xs text-slate-400 block mb-1 font-bold">LOT ID</label><input disabled={readOnly} className="bg-transparent text-3xl font-black text-slate-800 outline-none w-full" value={activeLot.name} onChange={e => updateLot('name', e.target.value)} /></div>
+                            <div>
+                                <label className="text-xs text-slate-400 block mb-1 font-bold">LOT ID</label>
+                                <input disabled={readOnly} className="bg-transparent text-3xl font-black text-slate-800 outline-none w-full" value={activeLot.name} onChange={e => updateLot('name', e.target.value)} />
+                            </div>
                             <div className="flex gap-2 bg-slate-200 p-1 rounded-lg">
                                 <button onClick={()=>setViewMode('chemical')} className={`px-4 py-2 rounded text-sm font-bold transition ${viewMode==='chemical'?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>Chemical</button>
                                 <button onClick={()=>setViewMode('device')} className={`px-4 py-2 rounded text-sm font-bold transition ${viewMode==='device'?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}`}>Device</button>
@@ -159,12 +257,19 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                                                 <input type="checkbox" className="w-4 h-4 accent-brand-600 rounded cursor-pointer" checked={activeLot.isMix} onChange={e=>{updateLot('isMix', e.target.checked); setActiveGridTab('main');}} disabled={readOnly}/>
                                                 <span className="text-xs font-bold text-slate-600">Mix Product</span>
                                             </label>
-                                            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200"><span className="text-xs text-slate-500 font-bold">Method Ver.</span><select disabled={readOnly} className="bg-transparent text-xs font-mono text-brand-600 font-bold outline-none cursor-pointer" value={activeLot.hplcMethodVersion} onChange={e=>updateLot('hplcMethodVersion', e.target.value)}><option value="">None</option>{material.methods && material.methods.map(m => (<option key={m.id} value={m.version}>{m.version}</option>))}</select></div>
+                                            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                                                <span className="text-xs text-slate-500 font-bold">Method Ver.</span>
+                                                <select disabled={readOnly} className="bg-transparent text-xs font-mono text-brand-600 font-bold outline-none cursor-pointer" value={activeLot.hplcMethodVersion} onChange={e=>updateLot('hplcMethodVersion', e.target.value)}>
+                                                    <option value="">None</option>
+                                                    {material.methods && material.methods.map(m => (<option key={m.id} value={m.version}>{m.version}</option>))}
+                                                </select>
+                                            </div>
                                         </div>
                                     </div>
 
                                     {activeLot.isMix ? (
                                         <div className="space-y-4 mb-6">
+                                            {/* Mix Product Logic */}
                                             <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-200">
                                                 <div className="flex items-center gap-2 overflow-x-auto">
                                                     <span className="text-xs font-bold text-slate-500 mr-2 flex items-center gap-1"><Icon name="git-merge" size={12}/> Ratio</span>
@@ -219,15 +324,36 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                                             </div>
                                             
                                             <div className="grid grid-cols-2 gap-6">
-                                                <FileUploader files={activeLot.hplcSynFiles} setFiles={f => updateLot('hplcSynFiles', f)} label="Synthesis Lots HPLC (PDFs)" readOnly={readOnly} />
-                                                <FileUploader files={activeLot.hplcSubFiles} setFiles={f => updateLot('hplcSubFiles', f)} label="Sublimation Lot HPLC (PDF)" readOnly={readOnly} />
+                                                {/* [수정됨] flex-col을 사용하여 파일 목록이 늘어나면 자연스럽게 아래 컨텐츠를 밀어내도록 함 */}
+                                                <div className="flex flex-col">
+                                                    <FileUploader 
+                                                        files={activeLot.hplcSynFiles || []} 
+                                                        setFiles={f => updateLot('hplcSynFiles', f)} 
+                                                        label="Synthesis Lots HPLC (PDFs)" 
+                                                        readOnly={readOnly} 
+                                                        hideList={true} 
+                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                    />
+                                                    {renderFileList(activeLot.hplcSynFiles, 'hplcSynFiles')}
+                                                </div>
+
+                                                <div className="flex flex-col">
+                                                    <FileUploader 
+                                                        files={activeLot.hplcSubFiles || []} 
+                                                        setFiles={f => updateLot('hplcSubFiles', f)} 
+                                                        label="Sublimation Lot HPLC (PDF)" 
+                                                        readOnly={readOnly} 
+                                                        hideList={true}
+                                                        accept=".pdf,.png,.jpg,.jpeg"
+                                                    />
+                                                    {renderFileList(activeLot.hplcSubFiles, 'hplcSubFiles')}
+                                                </div>
                                             </div>
                                         </div>
                                     )}
 
-                                    <div className="mb-6"><label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Synthesis History</label><textarea disabled={readOnly} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700 outline-none" rows="3" value={activeLot.synHistory || ''} onChange={e=>updateLot('synHistory', e.target.value)}></textarea></div>
+                                    <div className="mb-6 mt-4"><label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Synthesis History</label><textarea disabled={readOnly} className="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700 outline-none" rows="3" value={activeLot.synHistory || ''} onChange={e=>updateLot('synHistory', e.target.value)}></textarea></div>
                                     
-                                    {/* [수정] Grid Update 시 RRT 자동 계산 적용 */}
                                     <ExcelGrid 
                                         key={currentGridInfo.key} 
                                         data={currentGridInfo.data} 
@@ -240,6 +366,7 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                                         readOnly={readOnly} 
                                     />
                                 </div>
+                                
                                 <div className="col-span-12 glass-panel p-6 rounded-xl bg-white">
                                     <h4 className="text-slate-700 font-bold mb-4 flex items-center gap-2"><Icon name="alert-triangle" size={18}/> Impurity Analysis</h4>
                                     <div className="mb-6"><label className="text-xs font-bold text-slate-500 uppercase mb-2 block">Halogen (ppm)</label><div className="flex gap-4">{['f','cl','br'].map(el => (<div key={el} className="flex items-center bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"><span className="text-xs font-bold text-slate-500 uppercase mr-2">{el}</span><input disabled={readOnly} className="bg-transparent text-slate-800 font-bold outline-none w-16 text-right" placeholder="0" value={activeLot.halogen[el]} onChange={e=>updateLot('halogen', {...activeLot.halogen, [el]:e.target.value})} /></div>))}</div></div>
@@ -258,8 +385,14 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                             </div>
                         ) : (
                             <div className="grid grid-cols-12 gap-6 animate-in">
-                                <div className="col-span-4 space-y-6"><Card title="Efficiency" icon="zap" color="text-emerald-600"><input disabled={readOnly} className="text-5xl font-black text-slate-800 text-center w-full outline-none bg-transparent" value={activeLot.ivlEff || ''} onChange={e=>updateLot('ivlEff', e.target.value)} /><span className="text-center block text-slate-400 text-sm">%</span></Card><Card title="Lifetime" icon="clock" color="text-blue-600"><input disabled={readOnly} className="text-5xl font-black text-slate-800 text-center w-full outline-none bg-transparent" value={activeLot.lifetime || ''} onChange={e=>updateLot('lifetime', e.target.value)} /><span className="text-center block text-slate-400 text-sm">%</span></Card></div>
-                                <div className="col-span-8 bg-white p-6 rounded-xl border border-slate-200 h-full relative group"><div className="flex justify-between items-center mb-4"><h4 className="text-slate-700 font-bold flex items-center gap-2"><Icon name="image" size={16}/> Evaluation Data</h4></div><div className="grid grid-cols-3 gap-4" style={{ gridAutoRows: '150px' }}>{activeLot.deviceImages?.map((img,i)=><ImageUploader key={i} value={img.src} onChange={v=>v?null:updateLot('deviceImages', activeLot.deviceImages.filter((_,x)=>x!==i))} readOnly={readOnly}/>)}<ImageUploader onChange={v=>v&&updateLot('deviceImages',[...(activeLot.deviceImages||[]),{src:v}])} label="Add Plot" readOnly={readOnly}/></div></div>
+                                <div className="col-span-4 space-y-6">
+                                    <Card title="Efficiency" icon="zap" color="text-emerald-600"><input disabled={readOnly} className="text-5xl font-black text-slate-800 text-center w-full outline-none bg-transparent" value={activeLot.ivlEff || ''} onChange={e=>updateLot('ivlEff', e.target.value)} /><span className="text-center block text-slate-400 text-sm">%</span></Card>
+                                    <Card title="Lifetime" icon="clock" color="text-blue-600"><input disabled={readOnly} className="text-5xl font-black text-slate-800 text-center w-full outline-none bg-transparent" value={activeLot.lifetime || ''} onChange={e=>updateLot('lifetime', e.target.value)} /><span className="text-center block text-slate-400 text-sm">%</span></Card>
+                                </div>
+                                <div className="col-span-8 bg-white p-6 rounded-xl border border-slate-200 h-full relative group">
+                                    <div className="flex justify-between items-center mb-4"><h4 className="text-slate-700 font-bold flex items-center gap-2"><Icon name="image" size={16}/> Evaluation Data</h4></div>
+                                    <div className="grid grid-cols-3 gap-4" style={{ gridAutoRows: '150px' }}>{activeLot.deviceImages?.map((img,i)=><ImageUploader key={i} value={img.src} onChange={v=>v?null:updateLot('deviceImages', activeLot.deviceImages.filter((_,x)=>x!==i))} readOnly={readOnly}/>)}<ImageUploader onChange={v=>v&&updateLot('deviceImages',[...(activeLot.deviceImages||[]),{src:v}])} label="Add Plot" readOnly={readOnly}/></div>
+                                </div>
                             </div>
                         )}
                     </>

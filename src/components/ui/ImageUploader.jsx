@@ -21,9 +21,9 @@ export const ImageUploader = ({ value, onChange, label, readOnly }) => {
         <div className="flex flex-col gap-1 items-center w-full h-full">
             {value ? (
                 <div className="relative group w-full h-full min-h-[80px]">
-                    <img src={value} className="w-full h-full object-cover rounded-md border border-slate-200 cursor-zoom-in hover:border-brand-500 transition shadow-sm" onClick={() => setShowPreview(true)} />
+                    <img src={value} alt="" className="w-full h-full object-cover rounded-md border border-slate-200 cursor-zoom-in hover:border-brand-500 transition shadow-sm" onClick={() => setShowPreview(true)} />
                     {!readOnly && <button className="absolute -top-2 -right-2 bg-white text-rose-500 border border-rose-100 rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 z-10 hover:scale-110 transition" onClick={(e) => {e.stopPropagation(); onChange(null);}}><Icon name="x" size={10} /></button>}
-                    {showPreview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 p-10 backdrop-blur-sm" onClick={()=>setShowPreview(false)}><img src={value} className="max-w-full max-h-full rounded-lg shadow-2xl border-4 border-white"/></div>}
+                    {showPreview && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 p-10 backdrop-blur-sm" onClick={()=>setShowPreview(false)}><img src={value} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl border-4 border-white"/></div>}
                 </div>
             ) : (
                 <label className={`w-full h-full min-h-[80px] flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-md transition text-slate-400 bg-slate-50 ${readOnly ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-white hover:border-brand-400 hover:text-brand-500 focus:border-brand-500 focus:bg-white focus:outline-none'}`} onPaste={handlePaste} tabIndex={readOnly ? -1 : 0}>

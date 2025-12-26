@@ -9,7 +9,7 @@ export const LICENSE_KEY = 'oled_matflow_license';
 export const USERS_DB_KEY = 'oled_users';
 export const INVENTORY_DB_KEY = 'oled_global_inventory';
 
-// 백엔드 기본 주소 (사용자님의 실제 서버 IP와 포트 5000으로 설정)
+// 백엔드 기본 주소
 const BACKEND_URL = 'http://192.168.123.121:5000/api';
 
 // 날짜 차이 계산 헬퍼
@@ -22,14 +22,34 @@ const getDaysDifference = (dateString) => {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 };
 
-// 백엔드 호출 공통 함수 (서버가 꺼져있으면 null 반환하여 로컬 저장 유도)
-const fetchWithErrorHandling = async (url, options) => {
+/**
+ * [핵심] 서버 상태를 2초 안에 체크하는 함수
+ */
+const checkServerHealth = async () => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2초 타임아웃
+        const response = await fetch(`${BACKEND_URL}/materials`, { 
+            method: 'GET', 
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        return response.ok;
+    } catch (e) {
+        return false;
+    }
+};
+
+/**
+ * 공통 Fetch 함수
+ */
+const fetchWithErrorHandling = async (url, options = {}) => {
     try {
         const response = await fetch(url, options);
         if (!response.ok) throw new Error('Server response not ok');
         return await response.json();
     } catch (e) {
-        console.warn(`백엔드 서버 연결 실패(${url}), 로컬 모드로 전환합니다.`);
+        console.warn(`⚠️ 서버 통신 실패: ${url}`);
         return null;
     }
 };
@@ -37,62 +57,68 @@ const fetchWithErrorHandling = async (url, options) => {
 export const api = {
     users: {
         getAll: async () => {
-            const data = await fetchWithErrorHandling(`${BACKEND_URL}/users`, { method: 'GET' });
-            if (data) return data;
-            try { return JSON.parse(localStorage.getItem(USERS_DB_KEY) || '[]'); } 
-            catch { return []; }
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                const data = await fetchWithErrorHandling(`${BACKEND_URL}/users`, { method: 'GET' });
+                if (data) return data;
+            }
+            return JSON.parse(localStorage.getItem(USERS_DB_KEY) || '[]');
         },
         saveAll: async (data) => {
-            const result = await fetchWithErrorHandling(`${BACKEND_URL}/users`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (result) return result;
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                await fetchWithErrorHandling(`${BACKEND_URL}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            }
             return localStorage.setItem(USERS_DB_KEY, JSON.stringify(data));
         },
     },
 
     inventory: {
         getGlobal: async () => {
-            const data = await fetchWithErrorHandling(`${BACKEND_URL}/inventory`, { method: 'GET' });
-            if (data) return data;
-            try { return JSON.parse(localStorage.getItem(INVENTORY_DB_KEY) || '[]'); }
-            catch { return []; }
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                const data = await fetchWithErrorHandling(`${BACKEND_URL}/inventory`, { method: 'GET' });
+                if (data) return data;
+            }
+            return JSON.parse(localStorage.getItem(INVENTORY_DB_KEY) || '[]');
         },
         saveGlobal: async (data) => {
-            const result = await fetchWithErrorHandling(`${BACKEND_URL}/inventory`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (result) return result;
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                await fetchWithErrorHandling(`${BACKEND_URL}/inventory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            }
             return localStorage.setItem(INVENTORY_DB_KEY, JSON.stringify(data));
         },
     },
 
     materials: {
         getAll: async () => {
-            const data = await fetchWithErrorHandling(`${BACKEND_URL}/materials`, { method: 'GET' });
-            if (data) return data;
-            try {
-                const localData = localStorage.getItem(STORAGE_KEY);
-                return localData ? JSON.parse(localData) : [];
-            } catch (e) {
-                return [];
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                const data = await fetchWithErrorHandling(`${BACKEND_URL}/materials`, { method: 'GET' });
+                if (data) return data;
             }
+            const localData = localStorage.getItem(STORAGE_KEY);
+            return localData ? JSON.parse(localData) : [];
         },
         saveAll: async (data) => {
-            // 서버(MariaDB) 저장 시도
-            const result = await fetchWithErrorHandling(`${BACKEND_URL}/materials`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            
-            if (result) return result;
-            
-            // 서버 실패 시 로컬스토리지에 백업 저장
+            const isAlive = await checkServerHealth();
+            if (isAlive) {
+                await fetchWithErrorHandling(`${BACKEND_URL}/materials`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+            }
+            // 서버 저장 여부와 상관없이 로컬에 항상 최신본 유지 (하이브리드 핵심)
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
             return true;
         }

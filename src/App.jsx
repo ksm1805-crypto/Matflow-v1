@@ -3,10 +3,13 @@
  * Copyright (c) 2025 Sun Min Kim. All rights reserved.
  */
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { api } from './services/api';
+import { api } from './services/api'; // License 체크용으로 유지
 import { ROLES, PROJECT_STAGES } from './constants';
 import { Icon } from './components/ui/Icon';
 import { sanitizeMaterial } from './utils/sanitize';
+
+// [중요] IndexedDB 유틸리티 불러오기 (db.js가 있어야 함)
+import { saveToDB, loadFromDB } from './utils/db';
 
 // 초기 데이터 import
 import { EXAMPLE_LOTS, EXAMPLE_INVENTORY, DEFAULT_USERS, INITIAL_GLOBAL_INVENTORY } from './utils/initialData';
@@ -32,32 +35,45 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
     const [showAdminPanel, setShowAdminPanel] = useState(false);
     const fileInputRef = useRef(null);
     
-    // 초기 데이터 로드 (Materials)
+    // 초기 데이터 로드 (Materials) - IndexedDB 사용
     useEffect(() => {
         const load = async () => {
-            let data = await api.materials.getAll();
-            if (!data || data.length === 0) {
-                const dummy = sanitizeMaterial({ 
-                    name: 'GH_unknown_Project', 
-                    stage: 'PRE_MASS', 
-                    lots: EXAMPLE_LOTS, 
-                    inventory: EXAMPLE_INVENTORY 
-                });
-                data = [dummy];
-                await api.materials.saveAll(data);
-            } else {
-                data = data.map(sanitizeMaterial);
+            try {
+                // [수정] api.materials.getAll() -> loadFromDB
+                let data = await loadFromDB('oled_materials');
+                
+                if (!data || data.length === 0) {
+                    const dummy = sanitizeMaterial({ 
+                        name: 'GH_unknown_Project', 
+                        stage: 'PRE_MASS', 
+                        lots: EXAMPLE_LOTS, 
+                        inventory: EXAMPLE_INVENTORY 
+                    });
+                    data = [dummy];
+                    // [수정] api.materials.saveAll -> saveToDB
+                    await saveToDB('oled_materials', data);
+                } else {
+                    data = data.map(sanitizeMaterial);
+                }
+                setMaterials(data);
+                if(data.length > 0 && !activeId) setActiveId(data[0].id);
+            } catch (error) {
+                console.error("Failed to load materials:", error);
             }
-            setMaterials(data);
-            if(data.length > 0 && !activeId) setActiveId(data[0].id);
         };
         load();
-    }, []);
+    }, [activeId]);
 
     const saveAll = async () => { 
         if(isLicenseExpired) { alert("License Expired."); return; }
-        await api.materials.saveAll(materials);
-        alert("Saved successfully!");
+        try {
+            // [수정] api.materials.saveAll -> saveToDB
+            await saveToDB('oled_materials', materials);
+            alert("Saved successfully! (IndexedDB)");
+        } catch (error) {
+            console.error("Save failed:", error);
+            alert("Save failed: " + error);
+        }
     };
 
     const updateActiveMat = (newMat) => {
@@ -69,6 +85,7 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
         if(isLicenseExpired) { alert("License Expired."); return; }
         
         const currentYear = new Date().getFullYear();
+        // window.prompt 사용 (Electron 환경에서는 커스텀 모달 권장하지만 웹에서는 동작)
         const inputYear = window.prompt("Enter Project Year:", currentYear);
         
         if (inputYear === null) return; // 취소 시 중단
@@ -197,7 +214,16 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
             <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
                  {isLicenseExpired && <div className="bg-rose-600 text-white text-xs font-bold text-center py-1 z-50 shadow-md">LICENSE EXPIRED - READ ONLY MODE.</div>}
                  {showAdminPanel ? (
-                     <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50"><AdminUserPanel users={users} setUsers={setUsers} /></div>
+                     <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
+                         {/* [수정] AdminUserPanel에 전달하는 setUsers를 DB 저장 기능과 연동 */}
+                         <AdminUserPanel 
+                             users={users} 
+                             setUsers={(newUsers) => {
+                                 setUsers(newUsers);
+                                 saveToDB('oled_users', newUsers);
+                             }} 
+                         />
+                     </div>
                  ) : (activeMat ? (
                     <>
                         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 p-4 z-10 flex justify-between items-center shadow-sm">
@@ -231,7 +257,7 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
 };
 
 // -----------------------------------------------------------------------------
-// 2. Root Component (진입점 & 데이터 로딩 & 인증) - 이게 누락되어 있었습니다!
+// 2. Root Component (진입점 & 데이터 로딩 & 인증)
 // -----------------------------------------------------------------------------
 const Root = () => {
     const [user, setUser] = useState(null);
@@ -243,22 +269,36 @@ const Root = () => {
 
     useEffect(() => {
         const init = async () => {
-            const storedUsers = api.users.getAll();
-            if (storedUsers && storedUsers.length > 0) setUsers(storedUsers);
-            else { setUsers(DEFAULT_USERS); api.users.saveAll(DEFAULT_USERS); }
+            try {
+                // [수정] Users 로드 (IndexedDB)
+                const storedUsers = await loadFromDB('oled_users');
+                if (storedUsers && storedUsers.length > 0) setUsers(storedUsers);
+                else { 
+                    setUsers(DEFAULT_USERS); 
+                    await saveToDB('oled_users', DEFAULT_USERS); 
+                }
 
-            const storedInv = await api.inventory.getGlobal();
-            if (storedInv && storedInv.length > 0) setGlobalInventory(storedInv);
-            else { setGlobalInventory(INITIAL_GLOBAL_INVENTORY); api.inventory.saveGlobal(INITIAL_GLOBAL_INVENTORY); }
+                // [수정] Global Inventory 로드 (IndexedDB)
+                const storedInv = await loadFromDB('oled_inventory');
+                if (storedInv && storedInv.length > 0) setGlobalInventory(storedInv);
+                else { 
+                    setGlobalInventory(INITIAL_GLOBAL_INVENTORY); 
+                    await saveToDB('oled_inventory', INITIAL_GLOBAL_INVENTORY); 
+                }
 
-            const licenseData = await api.license.get();
-            if (licenseData.isValid) {
-                setHasValidLicense(true);
-                if (licenseData.isExpired) setIsLicenseExpired(true);
-            } else {
-                setHasValidLicense(false);
+                // License는 로직이 포함되어 있을 수 있으므로 기존 api 유지
+                const licenseData = await api.license.get();
+                if (licenseData.isValid) {
+                    setHasValidLicense(true);
+                    if (licenseData.isExpired) setIsLicenseExpired(true);
+                } else {
+                    setHasValidLicense(false);
+                }
+            } catch (err) {
+                console.error("Initialization error:", err);
+            } finally {
+                setCheckingLicense(false);
             }
-            setCheckingLicense(false);
         };
         init();
     }, []);
@@ -266,13 +306,31 @@ const Root = () => {
     const handleLicenseActivate = async () => {
         setHasValidLicense(true);
         setIsLicenseExpired(false);
+        // 라이선스 활성화 시 로직이 있다면 여기에 api 호출 추가 가능
     };
 
     if (checkingLicense) return <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-400 font-bold">Initializing System...</div>;
     if (!hasValidLicense) return <LicenseScreen onActivate={handleLicenseActivate} />;
     if (!user) return <AuthScreen onLogin={setUser} users={users} setUsers={setUsers} />;
 
-    return <MainApp currentUser={user} onLogout={()=>setUser(null)} users={users} setUsers={setUsers} isLicenseExpired={isLicenseExpired} globalInventory={globalInventory} updateGlobalInventory={(inv) => { setGlobalInventory(inv); api.inventory.saveGlobal(inv); }} />;
+    return (
+        <MainApp 
+            currentUser={user} 
+            onLogout={()=>setUser(null)} 
+            users={users} 
+            setUsers={(newUsers) => {
+                setUsers(newUsers);
+                saveToDB('oled_users', newUsers);
+            }} 
+            isLicenseExpired={isLicenseExpired} 
+            globalInventory={globalInventory} 
+            updateGlobalInventory={(inv) => { 
+                setGlobalInventory(inv); 
+                // [수정] Inventory 저장 (IndexedDB)
+                saveToDB('oled_inventory', inv);
+            }} 
+        />
+    );
 };
 
 export default Root;
