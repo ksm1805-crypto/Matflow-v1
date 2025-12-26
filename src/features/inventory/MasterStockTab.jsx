@@ -1,31 +1,41 @@
 import React, { useState } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
-import { generateId } from '../../utils/math';
+import { ExcelGrid } from '../../components/ui/ExcelGrid'; 
+import { KetcherModal } from '../../components/ui/KetcherModal'; 
 
-// [수정] materials prop 추가 (전체 프로젝트 사용량 계산용)
-export const MasterStockTab = ({ globalInventory, updateGlobalInventory, materials = [], readOnly }) => {
+export const MasterStockTab = ({ globalInventory = [], updateGlobalInventory, materials, readOnly }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [isKetcherOpen, setIsKetcherOpen] = useState(false);
+    const [targetItemId, setTargetItemId] = useState(null);
 
-    const updateItem = (id, field, val) => {
-        if (readOnly) return;
-        updateGlobalInventory(globalInventory.map(item => item.id === id ? { ...item, [field]: val, lastUpdated: new Date().toISOString().slice(0, 10) } : item));
-    };
-
-    const addItem = () => {
+    // 새 아이템 추가
+    const addNewItem = () => {
         if (readOnly) return;
         const newItem = {
-            id: generateId(),
-            name: '',
+            id: Date.now(),
+            name: 'New Material',
             casNo: '',
-            category: 'Raw Material',
-            purity: '',
-            currentStock: 0,
-            unit: 'g',
-            location: '',
-            lastUpdated: new Date().toISOString().slice(0, 10)
+            purity: '',       
+            unit: 'g',        
+            currentStock: 0,  
+            location: '',     
+            maker: '',
+            description: '',
+            structureSmiles: '',
+            structureMol: '',
+            structureSvg: '',
+            hasStructure: false
         };
         updateGlobalInventory([...globalInventory, newItem]);
+    };
+
+    const updateItem = (id, key, value) => {
+        if (readOnly) return;
+        const updated = globalInventory.map(item => 
+            item.id === id ? { ...item, [key]: value } : item
+        );
+        updateGlobalInventory(updated);
     };
 
     const deleteItem = (id) => {
@@ -35,141 +45,184 @@ export const MasterStockTab = ({ globalInventory, updateGlobalInventory, materia
         }
     };
 
-    const filteredItems = globalInventory.filter(item => 
-        (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (item.casNo || '').includes(searchTerm) || 
-        (item.category || '').toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const openStructureEditor = (id) => {
+        if (readOnly) return;
+        setTargetItemId(id);
+        setIsKetcherOpen(true);
+    };
+
+    // 구조 저장 및 자동 정보 입력 핸들러
+    const handleStructureSave = (smiles, molfile, svg, identifiedInfo) => {
+        if (!targetItemId) return;
+
+        const updated = globalInventory.map(item => {
+            if (item.id === targetItemId) {
+                const newItem = {
+                    ...item,
+                    structureSmiles: smiles,
+                    structureMol: molfile,
+                    structureSvg: svg,
+                    hasStructure: !!smiles
+                };
+
+                // PubChem 정보 자동 입력
+                if (identifiedInfo) {
+                    if (!item.name || item.name === 'New Material') newItem.name = identifiedInfo.name;
+                    if (!item.casNo && identifiedInfo.casNo) newItem.casNo = identifiedInfo.casNo;
+                    if (!item.description) newItem.description = identifiedInfo.description;
+                }
+                return newItem;
+            }
+            return item;
+        });
+
+        updateGlobalInventory(updated);
+        setIsKetcherOpen(false);
+    };
+
+    const currentStructure = globalInventory.find(item => item.id === targetItemId)?.structureSmiles || '';
+
+    const filteredInventory = globalInventory.filter(item => {
+        const name = item.name || '';
+        const cas = item.casNo || '';
+        const matchSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) || cas.includes(searchTerm);
+        return matchSearch;
+    });
 
     return (
-        <div className="h-full overflow-y-auto custom-scrollbar p-6 bg-slate-50 space-y-6">
-            {/* Header Section */}
-            <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                    <div className="bg-white p-2 rounded-lg border border-slate-200 shadow-sm text-slate-500">
-                        <Icon name="package" size={20}/>
-                    </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-slate-800">Master Inventory</h2>
-                        <p className="text-xs text-slate-500">Real-time stock monitoring across all projects.</p>
-                    </div>
+        <div className="flex h-full bg-slate-50 flex-col p-6 space-y-4">
+            {/* Header Control */}
+            <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-4">
+                    <div className="bg-brand-50 p-2 rounded-lg text-brand-600"><Icon name="database" size={24}/></div>
+                    <div><h2 className="text-lg font-bold text-slate-800">Master Stock List</h2><p className="text-xs text-slate-500 font-medium">Global Inventory Management</p></div>
                 </div>
                 <div className="flex gap-3">
                     <div className="relative">
                         <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                        <input 
-                            type="text" 
-                            className="pl-8 pr-4 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-brand-500 w-64 shadow-sm"
-                            placeholder="Search by Name, CAS No..." 
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                        <input type="text" placeholder="Search..." className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-brand-500 w-64 transition" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}/>
                     </div>
-                    {!readOnly && (
-                        <button onClick={addItem} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-700 transition shadow-md">
-                            <Icon name="plus" size={16}/> Add Item
-                        </button>
-                    )}
+                    {!readOnly && <button onClick={addNewItem} className="bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 shadow-md transition"><Icon name="plus" size={16}/> Add Item</button>}
                 </div>
             </div>
 
-            {/* Inventory Table */}
-            <Card className="p-0 overflow-hidden border border-slate-200 shadow-sm">
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200 text-xs uppercase font-semibold">
+            {/* Grid Table */}
+            <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                <div className="overflow-auto custom-scrollbar flex-1">
+                    <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase sticky top-0 z-10 shadow-sm">
                             <tr>
-                                <th className="px-4 py-3 w-16 text-center">Status</th>
-                                <th className="px-4 py-3 w-40">Material Name</th>
-                                <th className="px-4 py-3 w-28">CAS No.</th>
-                                <th className="px-4 py-3 w-28">Category</th>
-                                <th className="px-4 py-3 w-20">Purity</th>
-                                {/* [수정] 재고 컬럼 분리: 실제가용 / 총재고 */}
-                                <th className="px-4 py-3 w-32 text-right">Available <span className="text-[9px] text-slate-400 normal-case">(Real)</span></th>
-                                <th className="px-4 py-3 w-24 text-right">Total Stock</th>
-                                <th className="px-4 py-3 w-20">Unit</th>
-                                <th className="px-4 py-3 w-24">Location</th>
-                                <th className="px-4 py-3 w-28">Last Updated</th>
-                                <th className="px-4 py-3 w-16 text-center">Action</th>
+                                <th className="p-3 w-24 text-center">Structure</th>
+                                <th className="p-3 w-12 text-center">No.</th>
+                                <th className="p-3">Material Name</th>
+                                <th className="p-3 w-32">CAS No.</th>
+                                <th className="p-3 w-20">Purity</th>
+                                {/* [수정] 너비를 w-24에서 w-36으로 확장 */}
+                                <th className="p-3 w-36">Total Stock</th>
+                                <th className="p-3 w-24">Maker</th>
+                                <th className="p-3 w-24">Location</th>
+                                <th className="p-3">Note</th>
+                                {!readOnly && <th className="p-3 w-10 text-center"></th>}
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 bg-white">
-                            {filteredItems.length > 0 ? filteredItems.map(item => {
-                                // [핵심 로직] 전체 프로젝트를 뒤져서 이 재료(masterId)를 쓰고 있는 양을 합산
-                                const totalAllocated = materials.reduce((acc, mat) => {
-                                    const matInv = mat.inventory || [];
-                                    const itemInProject = matInv.find(i => i.masterId === item.id);
-                                    return acc + (itemInProject ? (parseFloat(itemInProject.projectStock) || 0) : 0);
-                                }, 0);
-
-                                const totalStock = parseFloat(item.currentStock) || 0;
-                                const availableStock = totalStock - totalAllocated;
-                                const isLow = availableStock < 10;
-                                const isShortage = availableStock < 0; // 마이너스 재고 경고
-
-                                return (
+                        <tbody className="divide-y divide-slate-100">
+                            {filteredInventory.length > 0 ? (
+                                filteredInventory.map((item, index) => (
                                     <tr key={item.id} className="hover:bg-slate-50 transition group">
-                                        <td className="px-4 py-3 text-center">
-                                            <div className={`w-2 h-2 rounded-full mx-auto ${isShortage ? 'bg-rose-600 animate-pulse' : isLow ? 'bg-amber-400' : 'bg-emerald-500'}`} title={isShortage ? 'Stock Shortage!' : isLow ? 'Low Stock' : 'Sufficient'}></div>
-                                        </td>
-                                        
-                                        <td className="px-4 py-3">
-                                            <input disabled={readOnly} className="w-full bg-transparent outline-none font-bold text-slate-700 focus:text-brand-600 transition" value={item.name} onChange={(e) => updateItem(item.id, 'name', e.target.value)} placeholder="Name"/>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <input disabled={readOnly} className="w-full bg-transparent outline-none font-mono text-slate-500 text-xs" value={item.casNo || ''} onChange={(e) => updateItem(item.id, 'casNo', e.target.value)} placeholder="-"/>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <select disabled={readOnly} className="w-full bg-transparent outline-none text-slate-600 cursor-pointer text-xs" value={item.category} onChange={(e) => updateItem(item.id, 'category', e.target.value)}>
-                                                <option value="Raw Material">Raw Material</option><option value="Reagent">Reagent</option><option value="Solvent">Solvent</option><option value="Catalyst">Catalyst</option><option value="Consumable">Consumable</option>
-                                            </select>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <input disabled={readOnly} type="number" className="w-full bg-transparent outline-none text-slate-600 text-right" value={item.purity} onChange={(e) => updateItem(item.id, 'purity', e.target.value)} placeholder="-"/>
-                                        </td>
-
-                                        {/* [수정] Available Stock (자동 계산) */}
-                                        <td className="px-4 py-3 text-right">
-                                            <span className={`font-bold ${isShortage ? 'text-rose-600' : 'text-emerald-600'}`}>
-                                                {availableStock.toFixed(1)}
-                                            </span>
-                                            {totalAllocated > 0 && (
-                                                <div className="text-[9px] text-slate-400">-{totalAllocated.toFixed(1)} used</div>
-                                            )}
+                                        {/* Structure Thumbnail */}
+                                        <td className="p-2 align-middle">
+                                            <div 
+                                                onClick={() => openStructureEditor(item.id)}
+                                                className={`
+                                                    w-20 h-16 mx-auto rounded-lg border flex items-center justify-center cursor-pointer overflow-hidden bg-white relative
+                                                    ${item.hasStructure ? 'border-brand-200 shadow-sm' : 'border-slate-200 border-dashed hover:border-slate-400'}
+                                                `}
+                                                title={item.hasStructure ? "Edit Structure" : "Add Structure"}
+                                            >
+                                                {item.structureSvg ? (
+                                                    <div 
+                                                        className="w-full h-full p-1 flex items-center justify-center [&_svg]:w-full [&_svg]:h-full [&_svg]:max-w-full [&_svg]:max-h-full"
+                                                        dangerouslySetInnerHTML={{ __html: item.structureSvg }}
+                                                    />
+                                                ) : (
+                                                    <Icon name="hexagon" size={20} className={item.hasStructure ? "text-brand-500" : "text-slate-300"}/>
+                                                )}
+                                                <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 flex items-center justify-center transition pointer-events-none">
+                                                    <Icon name="edit-2" size={16} className="text-slate-700"/>
+                                                </div>
+                                            </div>
                                         </td>
 
-                                        {/* Total Stock (입력 가능) */}
-                                        <td className="px-4 py-3">
-                                            <input 
-                                                disabled={readOnly}
-                                                type="number"
-                                                className="w-full bg-transparent outline-none font-bold text-slate-800 text-right border-b border-transparent hover:border-slate-200 focus:border-brand-500 transition" 
-                                                value={item.currentStock} 
-                                                onChange={(e) => updateItem(item.id, 'currentStock', e.target.value)}
-                                            />
+                                        <td className="p-3 text-center text-slate-400 font-mono text-xs">{index + 1}</td>
+
+                                        {/* Name */}
+                                        <td className="p-3">
+                                            <input disabled={readOnly} className="w-full bg-transparent font-bold text-slate-700 outline-none focus:text-brand-600 focus:border-b focus:border-brand-500 transition px-1 py-0.5" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Material Name"/>
                                         </td>
 
-                                        <td className="px-4 py-3">
-                                            <select disabled={readOnly} className="w-full bg-transparent outline-none text-slate-500 text-xs cursor-pointer" value={item.unit} onChange={(e) => updateItem(item.id, 'unit', e.target.value)}>
-                                                <option value="g">g</option><option value="kg">kg</option><option value="mg">mg</option><option value="L">L</option><option value="mL">mL</option><option value="ea">ea</option>
-                                            </select>
+                                        {/* CAS No */}
+                                        <td className="p-3">
+                                            <input disabled={readOnly} className="w-full bg-transparent font-mono text-xs text-slate-500 outline-none focus:text-slate-700 focus:border-b focus:border-brand-500 transition px-1 py-0.5" value={item.casNo} onChange={e => updateItem(item.id, 'casNo', e.target.value)} placeholder="00-00-0"/>
                                         </td>
-                                        <td className="px-4 py-3">
-                                            <input disabled={readOnly} className="w-full bg-transparent outline-none text-slate-500 text-xs" value={item.location} onChange={(e) => updateItem(item.id, 'location', e.target.value)} placeholder="-"/>
+
+                                        {/* Purity */}
+                                        <td className="p-3">
+                                            <div className="flex items-center gap-1">
+                                                <input disabled={readOnly} className="w-full bg-transparent text-right outline-none font-bold text-slate-600" value={item.purity} onChange={e => updateItem(item.id, 'purity', e.target.value)} placeholder="99.9"/>
+                                                <span className="text-slate-400">%</span>
+                                            </div>
                                         </td>
-                                        <td className="px-4 py-3 text-xs text-slate-400">{item.lastUpdated}</td>
-                                        <td className="px-4 py-3 text-center">
-                                            {!readOnly && <button onClick={() => deleteItem(item.id)} className="text-slate-300 hover:text-rose-500 transition"><Icon name="trash-2" size={14}/></button>}
+
+                                        {/* Total Stock (칸 넓힘) */}
+                                        <td className="p-3">
+                                            <div className="flex items-center gap-1 bg-slate-50 rounded px-2 py-1 border border-slate-200 w-full">
+                                                <input disabled={readOnly} type="number" className="w-full bg-transparent text-right outline-none font-bold text-slate-700" value={item.currentStock} onChange={e => updateItem(item.id, 'currentStock', e.target.value)} placeholder="0"/>
+                                                <input disabled={readOnly} className="w-10 bg-transparent text-xs text-center text-slate-500 outline-none font-bold" value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} placeholder="g"/>
+                                            </div>
                                         </td>
+
+                                        {/* Maker */}
+                                        <td className="p-3">
+                                            <input disabled={readOnly} className="w-full bg-transparent outline-none text-slate-600 focus:border-b focus:border-brand-500 px-1" value={item.maker} onChange={e => updateItem(item.id, 'maker', e.target.value)} placeholder="-"/>
+                                        </td>
+
+                                        {/* Location */}
+                                        <td className="p-3">
+                                            <input disabled={readOnly} className="w-full bg-transparent outline-none text-slate-600 focus:border-b focus:border-brand-500 px-1" value={item.location} onChange={e => updateItem(item.id, 'location', e.target.value)} placeholder="-"/>
+                                        </td>
+
+                                        {/* Note */}
+                                        <td className="p-3">
+                                            <input disabled={readOnly} className="w-full bg-transparent outline-none text-slate-500 focus:border-b focus:border-brand-500 px-1" value={item.description} onChange={e => updateItem(item.id, 'description', e.target.value)} placeholder="Memo"/>
+                                        </td>
+
+                                        {!readOnly && (
+                                            <td className="p-3 text-center">
+                                                <button onClick={() => deleteItem(item.id)} className="text-slate-300 hover:text-rose-500 transition"><Icon name="trash-2" size={14}/></button>
+                                            </td>
+                                        )}
                                     </tr>
-                                );
-                            }) : (
-                                <tr><td colSpan="11" className="p-8 text-center text-slate-400 italic bg-slate-50/50">No items found.</td></tr>
+                                ))
+                            ) : (
+                                <tr><td colSpan={10} className="p-12 text-center text-slate-400">No items found.</td></tr>
                             )}
                         </tbody>
                     </table>
                 </div>
-            </Card>
+                <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs text-slate-500 font-medium">
+                    <div>Total Items: <span className="text-slate-800 font-bold">{globalInventory.length}</span></div>
+                    <div>OLED Matflow Master Database</div>
+                </div>
+            </div>
+
+            {isKetcherOpen && (
+                <KetcherModal 
+                    isOpen={isKetcherOpen} 
+                    onClose={() => setIsKetcherOpen(false)} 
+                    onSave={handleStructureSave}
+                    initialSmiles={currentStructure}
+                />
+            )}
         </div>
     );
 };
