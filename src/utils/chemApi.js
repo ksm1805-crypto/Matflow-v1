@@ -1,73 +1,152 @@
-export const identifyStructure = async (smiles) => {
-    if (!smiles) return null;
+// src/utils/chemApi.js
+import { getRDKit } from './rdkit';
 
+// CAS 번호 정규식 (이게 있어야 CAS 번호만 걸러냅니다)
+const CAS_RE = /^\d{2,7}-\d{2}-\d{1}$/;
+
+// =========================
+// 공통 유틸
+// =========================
+const fetchWithRetry = async (url, retries = 1) => {
+  for (let i = 0; i <= retries; i++) {
     try {
-        // 특수문자 처리를 위해 인코딩
-        const encodedSmiles = encodeURIComponent(smiles);
-        
-        // 1. 기본 정보 조회 (이름, 분자식, 분자량, CID)
-        const propUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encodedSmiles}/property/Title,MolecularFormula,MolecularWeight,IUPACName/JSON`;
-        const propRes = await fetch(propUrl);
-        if (!propRes.ok) throw new Error('Unknown Structure');
-        
-        const propData = await propRes.json();
-        const props = propData.PropertyTable.Properties[0];
-        const cid = props.CID; // PubChem ID
+      const res = await fetch(url);
+      if (res.ok) return res;
+      if (res.status === 429) { // Too Many Requests
+        await new Promise(r => setTimeout(r, 800));
+        continue;
+      }
+    } catch (e) {}
+  }
+  return fetch(url);
+};
 
-        // 2. CAS No 정밀 조회 (XRefs/RN 엔드포인트 사용)
-        // Synonyms(동의어)는 데이터가 너무 커서 실패할 수 있으므로, 
-        // Registry Number(RN)만 따로 조회하는 것이 훨씬 가볍고 정확합니다.
-        let casNo = '';
+const safeTrim = (s) => (typeof s === 'string' ? s.trim() : '');
+
+// CAS 후보군 추출 및 정렬 함수 (이게 빠져서 선택창이 안 떴음)
+const extractAllCas = (list) => {
+  if (!Array.isArray(list)) return [];
+  const candidates = list.filter(item => CAS_RE.test(safeTrim(String(item))));
+  const unique = [...new Set(candidates)];
+  
+  // 길이 짧은 순 -> 알파벳 순 정렬
+  unique.sort((a, b) => {
+    if (a.length !== b.length) return a.length - b.length;
+    return a.localeCompare(b);
+  });
+  
+  return unique;
+};
+
+// RDKit 로컬 계산 유틸
+const getLocalMolInfo = (mol) => {
+  try {
+    const formula = mol.get_mol_formula ? mol.get_mol_formula() : '';
+    const mw = mol.get_molecular_weight ? mol.get_molecular_weight().toFixed(2) : '';
+    return { formula, mw };
+  } catch (e) {
+    return { formula: '', mw: '' };
+  }
+};
+
+// =========================
+// 구조(SMILES) → 정보 식별 (CAS 후보군 수집 포함)
+// =========================
+export const identifyStructure = async (smiles, extraInfo = {}) => {
+  if (!smiles) return null;
+
+  let rdkit;
+  try { rdkit = await getRDKit(); } catch (e) {}
+
+  // 1. RDKit 유효성 검사
+  let queryMol = null;
+  try {
+    if (rdkit) queryMol = rdkit.get_mol(smiles);
+  } catch (e) {
+    console.warn('Invalid SMILES:', smiles);
+    return null;
+  }
+
+  // 기본 로컬 정보 계산
+  const localInfo = queryMol ? getLocalMolInfo(queryMol) : { formula: '', mw: '' };
+  
+  // 2. PubChem API로 상세 정보 및 CAS 후보군 조회
+  try {
+    const encoded = encodeURIComponent(safeTrim(smiles));
+    const cidsUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/${encoded}/cids/JSON`;
+    const cidsRes = await fetchWithRetry(cidsUrl);
+    
+    if (cidsRes.ok) {
+      const cidsData = await cidsRes.json();
+      const cids = cidsData?.IdentifierList?.CID || [];
+      
+      if (cids.length > 0) {
+        const cid = cids[0]; // 가장 정확한 CID 하나만 사용
+
+        // 2-1. 기본 물성 정보 (이름, 분자량 등)
+        const propUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/property/Title,MolecularFormula,MolecularWeight,IUPACName,CanonicalSMILES/JSON`;
+        const propRes = await fetchWithRetry(propUrl);
+        let props = {};
         
-        if (cid) {
-            try {
-                // RN(등록번호) 목록 조회
-                const rnUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/xrefs/RN/JSON`;
-                const rnRes = await fetch(rnUrl);
-                
-                if (rnRes.ok) {
-                    const rnData = await rnRes.json();
-                    const rns = rnData.InformationList.Information[0].RN;
-                    
-                    // CAS No 정규식 (숫자 2~7자리 - 숫자 2자리 - 숫자 1자리)
-                    const casPattern = /^\d{2,7}-\d{2}-\d{1}$/;
-                    
-                    // 목록 중에서 CAS 패턴과 일치하는 첫 번째 번호 선택
-                    // PubChem은 보통 가장 대표적인 CAS를 앞쪽에 배치합니다.
-                    const found = rns.find(rn => casPattern.test(rn));
-                    if (found) casNo = found;
-                }
-            } catch (e) {
-                console.warn("CAS Lookup via XRefs failed, trying Synonyms fallback...");
-                
-                // 만약 RN 조회에 실패하면, 기존 방식(Synonyms)으로 한 번 더 시도 (백업)
-                try {
-                     const synUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/synonyms/JSON`;
-                     const synRes = await fetch(synUrl);
-                     if(synRes.ok) {
-                        const synData = await synRes.json();
-                        const synonyms = synData.InformationList.Information[0].Synonyms;
-                        const casPattern = /^\d{2,7}-\d{2}-\d{1}$/;
-                        // 동의어 중 앞에서부터 CAS 패턴 찾기
-                        const found = synonyms.find(s => casPattern.test(s));
-                        if(found) casNo = found;
-                     }
-                } catch(synErr) {
-                    console.warn("CAS Lookup completely failed");
-                }
-            }
+        if (propRes.ok) {
+          const propData = await propRes.json();
+          props = propData?.PropertyTable?.Properties?.[0] || {};
         }
 
-        return {
-            name: props.Title || props.IUPACName || '',
-            formula: props.MolecularFormula || '',
-            mw: props.MolecularWeight || '',
-            casNo: casNo || '', 
-            description: `IUPAC: ${props.IUPACName || '-'}`
-        };
+        // 2-2. [복구됨] CAS 후보군 수집 (Synonyms + RN)
+        // 이 부분이 있어야 UI에서 선택창을 띄울 수 있습니다.
+        let candidates = [];
+        
+        // (A) Synonyms에서 CAS 찾기
+        try {
+            const synUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/synonyms/JSON`;
+            const synRes = await fetchWithRetry(synUrl);
+            if (synRes.ok) {
+                const synData = await synRes.json();
+                candidates = candidates.concat(synData?.InformationList?.Information?.[0]?.Synonyms || []);
+            }
+        } catch(e) {}
 
-    } catch (error) {
-        console.error("Structure ID Error:", error);
-        return null;
+        // (B) RN(Registry Number)에서 CAS 찾기
+        try {
+            const rnUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cid}/xrefs/RN/JSON`;
+            const rnRes = await fetchWithRetry(rnUrl);
+            if (rnRes.ok) {
+                const rnData = await rnRes.json();
+                candidates = candidates.concat(rnData?.InformationList?.Information?.[0]?.RN || []);
+            }
+        } catch(e) {}
+
+        const sortedCandidates = extractAllCas(candidates);
+
+        if (queryMol) queryMol.delete();
+
+        // 결과 반환 (casCandidates 포함)
+        return {
+          smiles: props.CanonicalSMILES || smiles,
+          name: props.Title || props.IUPACName || 'Unknown Name',
+          formula: props.MolecularFormula || localInfo.formula,
+          mw: props.MolecularWeight || localInfo.mw,
+          casNo: sortedCandidates[0] || '', // 가장 유력한 것 1개
+          casCandidates: sortedCandidates,  // [중요] 선택창을 위한 전체 목록
+          description: `Source: PubChem (CID: ${cid})`,
+        };
+      }
     }
+  } catch (e) {
+    console.warn('PubChem identification failed, using local fallback:', e);
+  }
+
+  // 3. API 실패 시 로컬 정보 반환
+  if (queryMol) queryMol.delete();
+
+  return {
+    smiles: smiles,
+    name: 'Unknown Compound',
+    formula: localInfo.formula,
+    mw: localInfo.mw,
+    casNo: '',
+    casCandidates: [],
+    description: 'Calculated locally',
+  };
 };

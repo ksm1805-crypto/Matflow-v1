@@ -1,49 +1,97 @@
 import React, { useState } from 'react';
+import { Card } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
-import { generateId } from '../../utils/math';
-import { USERS_DB_KEY } from '../../services/api'; // api.js에서 키 가져오거나 상수화
 
-export const AuthScreen = ({ onLogin, users, setUsers }) => {
-    const [mode, setMode] = useState('LOGIN'); 
-    const [formData, setFormData] = useState({ username: '', password: '', name: '', roleId: 'GUEST' });
+export const AuthScreen = ({ onLogin, users }) => {
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const [successMsg, setSuccessMsg] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleLogin = (e) => {
         e.preventDefault();
-        setError(''); setSuccessMsg('');
-        if (mode === 'LOGIN') {
-            const user = users.find(u => u.username === formData.username && u.password === formData.password);
-            if (!user) return setError('Invalid credentials');
-            if (user.status === 'PENDING') return setError('Account pending approval.');
-            onLogin(user);
-        } else {
-            if (!formData.username || !formData.password || !formData.name) return setError('All fields required');
-            if (users.some(u => u.username === formData.username)) return setError('Username exists');
-            const newUser = { ...formData, id: generateId(), status: 'PENDING', managerRole: 'NONE' };
-            const updatedUsers = [...users, newUser];
-            setUsers(updatedUsers);
-            localStorage.setItem('oled_matflow_users_v1', JSON.stringify(updatedUsers));
-            setSuccessMsg('Registration successful!');
-            setTimeout(() => setMode('LOGIN'), 1500);
-        }
+        setIsLoading(true);
+        setError('');
+
+        // 로딩 효과
+        setTimeout(() => {
+            // [수정] 아이디/비번만 확인하고 isActive 여부는 무시합니다.
+            const user = users.find(u => 
+                u.username.toLowerCase() === username.toLowerCase() && 
+                u.password === password
+            );
+
+            if (user) {
+                // 계정 상태(isActive) 체크 로직 제거 -> 바로 로그인 성공 처리
+                onLogin(user);
+            } else {
+                setError('Invalid username or password.');
+            }
+            setIsLoading(false);
+        }, 600);
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-100">
-            <div className="w-full max-w-md p-8 bg-white rounded-2xl border border-slate-200 shadow-2xl relative z-10 animate-in">
-                <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-50 mb-4 border border-brand-100"><Icon name="fingerprint" size={32} className="text-brand-600"/></div><h1 className="text-2xl font-bold text-slate-800 tracking-tight">OLED Matflow</h1><p className="text-slate-500 text-sm mt-2">v1.0 System</p></div>
-                {successMsg ? <div className="text-emerald-600 text-center p-4 bg-emerald-50 rounded border border-emerald-100 mb-4">{successMsg}</div> : (
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Username</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-slate-800 outline-none focus:border-brand-500 transition" value={formData.username} onChange={e=>setFormData({...formData, username:e.target.value})}/></div>
-                        <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label><input type="password" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-slate-800 outline-none focus:border-brand-500 transition" value={formData.password} onChange={e=>setFormData({...formData, password:e.target.value})}/></div>
-                        {mode === 'SIGNUP' && (<><div className="animate-in"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label><input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-slate-800 outline-none focus:border-brand-500 transition" value={formData.name} onChange={e=>setFormData({...formData, name:e.target.value})}/></div><div className="animate-in"><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Role Request</label><div className="grid grid-cols-2 gap-2"><button type="button" onClick={()=>setFormData({...formData, roleId: 'GUEST'})} className={`p-2 rounded border text-sm font-bold ${formData.roleId==='GUEST'?'bg-brand-600 border-brand-500 text-white':'bg-white border-slate-200 text-slate-500'}`}>Guest</button><button type="button" onClick={()=>setFormData({...formData, roleId: 'RESEARCHER'})} className={`p-2 rounded border text-sm font-bold ${formData.roleId==='RESEARCHER'?'bg-brand-600 border-brand-500 text-white':'bg-white border-slate-200 text-slate-500'}`}>Researcher</button></div></div></>)}
-                        {error && <div className="text-rose-500 text-sm text-center bg-rose-50 p-2 rounded border border-rose-100">{error}</div>}
-                        <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg transition shadow-md">{mode === 'LOGIN' ? 'Sign In' : 'Submit Registration'}</button>
-                    </form>
-                )}
-                <div className="mt-6 pt-6 border-t border-slate-100 text-center"><button onClick={()=>{setMode(mode==='LOGIN'?'SIGNUP':'LOGIN'); setError(''); setSuccessMsg('')}} className="text-sm text-brand-600 hover:text-brand-700 font-bold">{mode === 'LOGIN' ? 'Create an Account' : 'Back to Login'}</button></div>
-            </div>
+        <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
+            <Card className="w-full max-w-md p-8 shadow-2xl border-t-4 border-t-brand-600">
+                <div className="text-center mb-8">
+                    <div className="flex justify-center items-center gap-2 mb-2">
+                        <Icon name="layers" size={32} className="text-brand-600"/>
+                    </div>
+                    <h1 className="text-3xl font-black text-slate-800 tracking-tight">OLED <span className="text-brand-600">Matflow</span></h1>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Material Data Management System</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-5">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
+                        <div className="relative">
+                            <Icon name="user" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                            <input 
+                                type="text" 
+                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-50 transition"
+                                placeholder="Enter your ID"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
+                        <div className="relative">
+                            <Icon name="lock" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                            <input 
+                                type="password" 
+                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-50 transition"
+                                placeholder="Enter password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                            />
+                        </div>
+                    </div>
+
+                    {error && (
+                        <div className="bg-rose-50 text-rose-500 text-xs font-bold p-3 rounded-lg flex items-center gap-2 animate-pulse">
+                            <Icon name="alert-circle" size={16}/> {error}
+                        </div>
+                    )}
+
+                    <button 
+                        type="submit" 
+                        disabled={isLoading}
+                        className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-200 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                    >
+                        {isLoading ? <Icon name="loader" className="animate-spin"/> : 'Sign In'}
+                    </button>
+                </form>
+
+                <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+                    <p className="text-[10px] text-slate-400">
+                        Default Admin: <strong className="text-slate-600">admin / admin123</strong>
+                    </p>
+                </div>
+            </Card>
         </div>
     );
 };

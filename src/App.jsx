@@ -24,6 +24,8 @@ import { RegressionTab } from './features/regression/RegressionTab';
 import { UnifiedAnalysisTab } from './features/analysis/UnifiedAnalysisTab';
 import { AnalysisHistoryTab } from './features/analysis/AnalysisHistoryTab';
 import { StockTab } from './features/inventory/StockTab';
+// [추가] Production Calendar Import
+import { ProductionCalendarTab } from './features/production/ProductionCalendarTab';
 
 // -----------------------------------------------------------------------------
 // 1. Main Application Component (로그인 후 화면)
@@ -33,13 +35,17 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
     const [activeId, setActiveId] = useState(null);
     const [activeTab, setActiveTab] = useState('history');
     const [showAdminPanel, setShowAdminPanel] = useState(false);
+    
+    // [추가] 생산 일정 데이터를 여기서 관리 (탭 이동 시 유지 위해)
+    const [productionEvents, setProductionEvents] = useState([]);
+
     const fileInputRef = useRef(null);
     
-    // 초기 데이터 로드 (Materials) - IndexedDB 사용
+    // 초기 데이터 로드 (Materials & Production Events) - IndexedDB 사용
     useEffect(() => {
         const load = async () => {
             try {
-                // [수정] api.materials.getAll() -> loadFromDB
+                // 1. Materials 로드
                 let data = await loadFromDB('oled_materials');
                 
                 if (!data || data.length === 0) {
@@ -50,24 +56,36 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
                         inventory: EXAMPLE_INVENTORY 
                     });
                     data = [dummy];
-                    // [수정] api.materials.saveAll -> saveToDB
                     await saveToDB('oled_materials', data);
                 } else {
                     data = data.map(sanitizeMaterial);
                 }
                 setMaterials(data);
                 if(data.length > 0 && !activeId) setActiveId(data[0].id);
+
+                // [추가] 2. Production Events 로드
+                const storedEvents = await loadFromDB('oled_production');
+                if (storedEvents && Array.isArray(storedEvents)) {
+                    // JSON 저장 시 날짜가 String이 되므로, 다시 Date 객체로 복원해야 캘린더가 인식함
+                    const parsedEvents = storedEvents.map(ev => ({
+                        ...ev,
+                        start: new Date(ev.start),
+                        end: new Date(ev.end)
+                    }));
+                    setProductionEvents(parsedEvents);
+                }
+
             } catch (error) {
-                console.error("Failed to load materials:", error);
+                console.error("Failed to load data:", error);
             }
         };
         load();
     }, [activeId]);
 
+    // Material 저장 핸들러
     const saveAll = async () => { 
         if(isLicenseExpired) { alert("License Expired."); return; }
         try {
-            // [수정] api.materials.saveAll -> saveToDB
             await saveToDB('oled_materials', materials);
             alert("Saved successfully! (IndexedDB)");
         } catch (error) {
@@ -76,19 +94,23 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
         }
     };
 
+    // [추가] 생산 일정 업데이트 핸들러 (State 업데이트 + DB 저장)
+    const updateProductionEvents = (newEvents) => {
+        setProductionEvents(newEvents);
+        saveToDB('oled_production', newEvents);
+    };
+
     const updateActiveMat = (newMat) => {
         setMaterials(prev => prev.map(m => m.id === newMat.id ? newMat : m));
     };
 
-    // [기능] 프로젝트 추가 시 연도 입력 Prompt
     const addMat = () => { 
         if(isLicenseExpired) { alert("License Expired."); return; }
         
         const currentYear = new Date().getFullYear();
-        // window.prompt 사용 (Electron 환경에서는 커스텀 모달 권장하지만 웹에서는 동작)
         const inputYear = window.prompt("Enter Project Year:", currentYear);
         
-        if (inputYear === null) return; // 취소 시 중단
+        if (inputYear === null) return;
 
         const year = parseInt(inputYear, 10);
         if (isNaN(year) || year < 2000 || year > 2100) {
@@ -124,7 +146,6 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
     const userRole = ROLES[currentUser.roleId];
     const isReadOnlyMode = isLicenseExpired ? true : !userRole.canEdit;
 
-    // 사이드바 연도별 그룹핑
     const materialsByYear = useMemo(() => {
         const groups = {}; 
         materials.forEach(m => { 
@@ -144,11 +165,22 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
         if (activeTab === 'history') return <AnalysisHistoryTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />;
         if (activeTab === 'analysis') return <UnifiedAnalysisTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />;
         if (activeTab === 'cost') return <CostTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />;
-        if (activeTab === 'regression') return <RegressionTab material={activeMat} lots={activeMat.lots} />;
         
         if (activeTab === 'master') {
             return <MasterStockTab globalInventory={globalInventory} updateGlobalInventory={updateGlobalInventory} materials={materials} readOnly={isReadOnlyMode} />;
         }
+
+        // [추가] Production 탭 렌더링 (State와 Handler 전달)
+        if (activeTab === 'production') {
+            return (
+                <ProductionCalendarTab 
+                    events={productionEvents} 
+                    onUpdateEvents={updateProductionEvents} 
+                />
+            );
+        }
+
+        if (activeTab === 'regression') return <RegressionTab material={activeMat} lots={activeMat.lots} />;
         
         return null;
     };
@@ -159,6 +191,7 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
         { id: 'cost', label: 'Cost' },
         { id: 'stock', label: 'Inventory' }, 
         { id: 'master', label: 'Master Stock' },
+        { id: 'production', label: 'Production' }, // Regression 왼쪽에 배치
         { id: 'regression', label: 'Regression' }
     ].filter(t => !userRole.restrictedTabs?.includes(t.id));
 
@@ -167,7 +200,7 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
             <div className="w-64 border-r border-slate-200 bg-white flex flex-col z-20 shadow-lg">
                 <div className="p-6 border-b border-slate-100">
                     <div className="flex items-center gap-2 text-slate-800 font-black text-xl mb-1"><Icon name="layers" size={24} className="text-brand-600"/> OLED<span className="text-brand-600"> Matflow</span></div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.0 Analysis</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.2 Analysis</div>
                 </div>
                 <div className="p-4 bg-slate-50 border-b border-slate-200">
                     <div className="flex items-center gap-3">
@@ -215,7 +248,6 @@ const MainApp = ({ currentUser, onLogout, users, setUsers, isLicenseExpired, glo
                  {isLicenseExpired && <div className="bg-rose-600 text-white text-xs font-bold text-center py-1 z-50 shadow-md">LICENSE EXPIRED - READ ONLY MODE.</div>}
                  {showAdminPanel ? (
                      <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
-                         {/* [수정] AdminUserPanel에 전달하는 setUsers를 DB 저장 기능과 연동 */}
                          <AdminUserPanel 
                              users={users} 
                              setUsers={(newUsers) => {
@@ -270,7 +302,7 @@ const Root = () => {
     useEffect(() => {
         const init = async () => {
             try {
-                // [수정] Users 로드 (IndexedDB)
+                // Users 로드
                 const storedUsers = await loadFromDB('oled_users');
                 if (storedUsers && storedUsers.length > 0) setUsers(storedUsers);
                 else { 
@@ -278,7 +310,7 @@ const Root = () => {
                     await saveToDB('oled_users', DEFAULT_USERS); 
                 }
 
-                // [수정] Global Inventory 로드 (IndexedDB)
+                // Global Inventory 로드
                 const storedInv = await loadFromDB('oled_inventory');
                 if (storedInv && storedInv.length > 0) setGlobalInventory(storedInv);
                 else { 
@@ -286,7 +318,7 @@ const Root = () => {
                     await saveToDB('oled_inventory', INITIAL_GLOBAL_INVENTORY); 
                 }
 
-                // License는 로직이 포함되어 있을 수 있으므로 기존 api 유지
+                // License 체크
                 const licenseData = await api.license.get();
                 if (licenseData.isValid) {
                     setHasValidLicense(true);
@@ -306,7 +338,6 @@ const Root = () => {
     const handleLicenseActivate = async () => {
         setHasValidLicense(true);
         setIsLicenseExpired(false);
-        // 라이선스 활성화 시 로직이 있다면 여기에 api 호출 추가 가능
     };
 
     if (checkingLicense) return <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-400 font-bold">Initializing System...</div>;
@@ -326,7 +357,6 @@ const Root = () => {
             globalInventory={globalInventory} 
             updateGlobalInventory={(inv) => { 
                 setGlobalInventory(inv); 
-                // [수정] Inventory 저장 (IndexedDB)
                 saveToDB('oled_inventory', inv);
             }} 
         />

@@ -10,21 +10,17 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
     const [refLotIds, setRefLotIds] = useState(material.lots.length > 0 ? [material.lots[0].id] : []);
     const [isRefSelectorOpen, setIsRefSelectorOpen] = useState(false);
     
-    // [추가] 불순물 비교 탭 상태 (main, p, n, 3)
     const [impurityTab, setImpurityTab] = useState('main');
 
-    // [핵심 로직] 선택된 탭에 따라 분석할 Grid 데이터를 교체하여 계산
     const crossLotPeaks = useMemo(() => {
-        // 선택된 탭에 맞는 Grid Key 결정
         let gridKey = 'hplcGrid';
         if (impurityTab === 'p') gridKey = 'hplcGridP';
         else if (impurityTab === 'n') gridKey = 'hplcGridN';
         else if (impurityTab === '3') gridKey = 'hplcGrid3';
 
-        // 해당 Grid 데이터를 표준 'hplcGrid' 필드로 매핑하여 함수에 전달
         const mappedLots = material.lots.map(lot => ({
             ...lot,
-            hplcGrid: lot[gridKey] // 선택된 Grid를 분석 대상으로 설정
+            hplcGrid: lot[gridKey] 
         }));
 
         return processCrossLotImpurityData(mappedLots);
@@ -35,7 +31,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
     const updateLot = (id, field, val) => { if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === id ? { ...l, [field]: val } : l) }); };
     const toggleRef = (id) => setRefLotIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
-    // 렌더러 함수들
     const renderCompValue = (lot, keyPrefix, unit = '%', color = 'text-slate-700') => {
         if (lot.isMix) {
             return (
@@ -54,7 +49,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
     const renderHalogen = (lot) => { const { f, cl, br } = lot.halogen || {}; if (!f && !cl && !br) return '-'; return <div className="text-[10px] font-mono flex flex-col gap-0.5"><span className="text-slate-600">F: {f||0}</span><span className="text-slate-600">Cl: {cl||0}</span></div>; };
     const renderMetal = (lot) => { const spec = material.specification?.metal || {}; const metals = material.specification?.metalElements || STANDARD_METALS; let isFail = false; metals.forEach((el) => { if ((parseFloat(lot.metalResults?.[el]) || 0) > parseFloat(spec[el] || 9999)) isFail = true; }); return isFail ? <span className="text-[10px] font-bold text-rose-500 bg-rose-50 px-2 py-1 rounded">Fail</span> : <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded">Pass</span>; };
 
-    // 현재 선택된 Mix 라벨 가져오기
     const firstMixLot = material.lots.find(l => l.isMix);
     const labelP = firstMixLot?.comp1Label || 'Comp 1';
     const labelN = firstMixLot?.comp2Label || 'Comp 2';
@@ -72,18 +66,27 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                             <tr>
                                 <th className="p-3 sticky left-0 z-20 bg-slate-100 border-r border-slate-200 shadow-sm">Lot No.</th>
                                 <th className="p-3 w-32">Period</th>
-                                <th className="p-3">Step</th> {/* Step 추가 */}
-                                <th className="p-3">Syn Site</th><th className="p-3">Sub Site</th>
-                                <th className="p-3 text-blue-700 bg-blue-50/50">Syn %</th> {/* 헤더 강조 */}
-                                <th className="p-3 text-amber-700 bg-amber-50/50">Sub %</th> {/* 헤더 강조 */}
+                                
+                                {/* Step, Syn Site, Sub Site 컬럼 삭제됨 */}
+                                
+                                {/* Syn Yield + Site 통합 헤더 */}
+                                <th className="p-3 text-blue-700 bg-blue-50/50 text-center">
+                                    Syn % <span className="text-[10px] text-slate-400 font-normal">/ Site</span>
+                                </th> 
+                                
+                                {/* Sub Yield + Site 통합 헤더 */}
+                                <th className="p-3 text-amber-700 bg-amber-50/50 text-center">
+                                    Sub % <span className="text-[10px] text-slate-400 font-normal">/ Site</span>
+                                </th> 
+
                                 <th className="p-3 text-purple-600">Purity</th><th className="p-3 text-amber-600">D-Rate</th>
                                 <th className="p-3">Mix</th><th className="p-3 text-blue-600">Output</th><th className="p-3">Cost</th>
-                                <th className="p-3">Halogen</th><th className="p-3">Metal</th><th className="p-3 text-emerald-600">Eff</th><th className="p-3 text-blue-600">Life</th>
+                                <th className="p-3">Halogen</th><th className="p-3 text-center">Metal</th><th className="p-3 text-emerald-600">Eff</th><th className="p-3 text-blue-600">Life</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 bg-white">
                             {material.lots.map(lot => {
-                                // Step 판단 로직
+                                // Step 판단 로직 (배경색 강조용으로 로직은 유지)
                                 const stepName = (lot.step || '').toUpperCase();
                                 const isSyn = ['SYNTHESIS', 'CRUDE', 'INT'].some(s => stepName.includes(s)) || stepName === 'SYNTHESIS';
                                 const isSub = ['SUBLIMATION', 'SUB'].some(s => stepName.includes(s)) || stepName === 'SUBLIMATION';
@@ -93,24 +96,32 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                                     <td className="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-sm">{lot.name}</td>
                                     <td className="p-3"><div className="flex flex-col gap-1"><input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateStart} onChange={e=>updateLot(lot.id, 'synDateStart', e.target.value)}/><input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateEnd} onChange={e=>updateLot(lot.id, 'synDateEnd', e.target.value)}/></div></td>
                                     
-                                    {/* Step 표시 */}
-                                    <td className="p-3 text-center">
-                                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${isSub ? 'bg-amber-100 text-amber-700' : (isSyn ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500')}`}>
-                                            {lot.step || '-'}
-                                        </span>
+                                    {/* [수정] Syn Yield + Site 통합 셀 */}
+                                    <td className={`p-3 text-center align-middle transition-colors ${isSyn ? 'bg-blue-50/50' : 'opacity-60'}`}>
+                                        <div className="flex flex-col items-center gap-1">
+                                            {renderCompValue(lot, 'synYield', '%')}
+                                            <input 
+                                                disabled={readOnly} 
+                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-400 placeholder:text-slate-300 border-t border-slate-100 pt-0.5" 
+                                                value={lot.synSite} 
+                                                onChange={e=>updateLot(lot.id,'synSite',e.target.value)} 
+                                                placeholder="Site"
+                                            />
+                                        </div>
                                     </td>
-
-                                    <td className="p-3"><input disabled={readOnly} className="bg-transparent w-20 outline-none text-xs" value={lot.synSite} onChange={e=>updateLot(lot.id,'synSite',e.target.value)} placeholder="-"/></td>
-                                    <td className="p-3"><input disabled={readOnly} className="bg-transparent w-20 outline-none text-xs" value={lot.subSite} onChange={e=>updateLot(lot.id,'subSite',e.target.value)} placeholder="-"/></td>
                                     
-                                    {/* Syn Yield (합성 단계면 강조) */}
-                                    <td className={`p-3 text-center transition-colors ${isSyn ? 'bg-blue-50/50' : 'opacity-60'}`}>
-                                        {renderCompValue(lot, 'synYield', '%')}
-                                    </td>
-                                    
-                                    {/* Sub Yield (승화 단계면 강조) */}
-                                    <td className={`p-3 text-center transition-colors ${isSub ? 'bg-amber-50/50' : 'opacity-60'}`}>
-                                        {renderCompValue(lot, 'subYield', '%')}
+                                    {/* [수정] Sub Yield + Site 통합 셀 */}
+                                    <td className={`p-3 text-center align-middle transition-colors ${isSub ? 'bg-amber-50/50' : 'opacity-60'}`}>
+                                        <div className="flex flex-col items-center gap-1">
+                                            {renderCompValue(lot, 'subYield', '%')}
+                                            <input 
+                                                disabled={readOnly} 
+                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-400 placeholder:text-slate-300 border-t border-slate-100 pt-0.5" 
+                                                value={lot.subSite} 
+                                                onChange={e=>updateLot(lot.id,'subSite',e.target.value)} 
+                                                placeholder="Site"
+                                            />
+                                        </div>
                                     </td>
 
                                     <td className="p-3 text-center">{renderCompValue(lot, 'hplcSub', '%', 'text-purple-600')}</td>
@@ -140,9 +151,7 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
             
             {/* 3. Impurity Comparison Table */}
             <Card title="Impurity Comparison (Row: Lot / Col: RRT)" icon="git-branch">
-                 {/* Top Control Bar: Tab Switcher & Ref Selector */}
                  <div className="flex justify-between items-center mb-2">
-                    {/* [추가] Impurity Tab Switcher */}
                     <div className="flex gap-1">
                         <button onClick={()=>setImpurityTab('main')} className={`px-3 py-1 text-xs font-bold rounded-lg border transition ${impurityTab==='main'?'bg-slate-800 text-white border-slate-800':'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Final Mix</button>
                         {hasMix && (
@@ -154,7 +163,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                         )}
                     </div>
 
-                    {/* Reference Selector */}
                     <div className="relative">
                         <div className="flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-200 transition select-none" onClick={() => setIsRefSelectorOpen(!isRefSelectorOpen)}>
                             <span className="text-xs text-slate-500 font-bold">Ref Lots:</span><span className="text-xs text-brand-600 font-bold">{refLotIds.length} Selected</span><Icon name="chevron-down" size={12}/>
