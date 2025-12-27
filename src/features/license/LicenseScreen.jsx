@@ -29,15 +29,19 @@ export const LicenseScreen = ({ onActivate }) => {
         setError('');
 
         try {
-            // 하이픈이 있든 없든 검증 가능하도록 처리 (서버 로직에 따라 다름)
-            const result = await api.license.verify(licenseKey);
-            if (result.isValid) {
+            // [수정 1] api.license.verify -> api.license.activate 로 변경
+            // [수정 2] 하이픈이 있는 상태 그대로 보냄 (api.js에서 trim 처리함)
+            const result = await api.license.activate(licenseKey);
+            
+            // [수정 3] result.isValid -> result.success 로 변경 (api.js 반환값 맞춤)
+            if (result.success) {
                 onActivate();
             } else {
                 setError(result.message || 'Invalid License Key');
             }
         } catch (err) {
-            setError('Connection failed. Please try again.');
+            console.error(err); // 디버깅용 로그
+            setError('An error occurred. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -73,7 +77,9 @@ export const LicenseScreen = ({ onActivate }) => {
 
                     <button 
                         type="submit" 
-                        disabled={isLoading || licenseKey.length < 19} // 키가 다 입력되어야 버튼 활성화
+                        // [참고] 키 길이가 부족해도 버튼은 누를 수 있게 하여 에러 메시지를 보게 함 (UX 선택사항)
+                        // disabled={isLoading || licenseKey.length < 19} 
+                        disabled={isLoading}
                         className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-200 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                     >
                         {isLoading ? (
