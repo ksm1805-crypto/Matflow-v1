@@ -9,8 +9,8 @@ export const LICENSE_KEY = 'oled_matflow_license';
 export const USERS_DB_KEY = 'oled_users';
 export const INVENTORY_DB_KEY = 'oled_global_inventory';
 
-// 백엔드 기본 주소
-const BACKEND_URL = 'http://192.168.123.121:5000/api';
+// [중요] 실제 백엔드가 없으므로, 타임아웃을 아주 짧게 잡거나 로컬우선으로 변경
+const BACKEND_URL = 'http://127.0.0.1:5000/api'; // 로컬호스트로 변경 (안전)
 
 // 날짜 차이 계산 헬퍼
 const getDaysDifference = (dateString) => {
@@ -23,12 +23,17 @@ const getDaysDifference = (dateString) => {
 };
 
 /**
- * [핵심] 서버 상태를 2초 안에 체크하는 함수
+ * 서버 상태 체크 (백엔드 없으면 무조건 false 반환하여 로컬 모드로 전환)
  */
 const checkServerHealth = async () => {
+    // 백엔드 서버가 준비되기 전까지는 무조건 false(오프라인 모드)로 리턴하여
+    // 불필요한 "Connection Failed" 에러를 방지합니다.
+    return false; 
+
+    /* 나중에 백엔드 연결 시 아래 주석 해제
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2초 타임아웃
+        const timeoutId = setTimeout(() => controller.abort(), 1000);
         const response = await fetch(`${BACKEND_URL}/materials`, { 
             method: 'GET', 
             signal: controller.signal 
@@ -38,11 +43,9 @@ const checkServerHealth = async () => {
     } catch (e) {
         return false;
     }
+    */
 };
 
-/**
- * 공통 Fetch 함수
- */
 const fetchWithErrorHandling = async (url, options = {}) => {
     try {
         const response = await fetch(url, options);
@@ -118,7 +121,6 @@ export const api = {
                     body: JSON.stringify(data)
                 });
             }
-            // 서버 저장 여부와 상관없이 로컬에 항상 최신본 유지 (하이브리드 핵심)
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
             return true;
         }
@@ -131,7 +133,12 @@ export const api = {
             try {
                 const parsed = JSON.parse(stored);
                 const { key, activationDate } = parsed;
-                if (!VALID_KEYS.includes(key)) return { isValid: false, isExpired: false };
+                
+                // 저장된 키 검증 (공백 제거)
+                if (!key || !VALID_KEYS.includes(key.trim())) {
+                    return { isValid: false, isExpired: false };
+                }
+
                 const daysPassed = getDaysDifference(activationDate);
                 const isExpired = daysPassed > 365;
                 return { 
@@ -143,13 +150,24 @@ export const api = {
                 return { isValid: false, isExpired: false };
             }
         },
-        activate: async (key) => {
-            if (VALID_KEYS.includes(key)) {
-                const data = { key: key, activationDate: new Date().toISOString() };
+
+        // [핵심 수정] 무조건 로컬에서만 검증 (네트워크 타임아웃 방지)
+        activate: async (inputKey) => {
+            // 1. 공백 제거 (사용자가 복붙할 때 생긴 공백 해결)
+            const cleanKey = inputKey ? inputKey.toString().trim() : '';
+
+            console.log(`Trying to activate with key: '${cleanKey}'`); // 디버깅용
+
+            // 2. Constants 파일의 키 목록과 비교
+            if (VALID_KEYS.includes(cleanKey)) {
+                const data = { key: cleanKey, activationDate: new Date().toISOString() };
                 localStorage.setItem(LICENSE_KEY, JSON.stringify(data));
                 return { success: true };
             }
-            return { success: false };
+            
+            // 3. 실패 시 명확히 false 리턴
+            console.warn('Activation failed: Key not found in VALID_KEYS');
+            return { success: false, message: 'Invalid License Key' };
         }
     }
 };
