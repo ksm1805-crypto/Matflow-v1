@@ -1,6 +1,6 @@
 import { db, auth, storage } from '../firebase'; 
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, signOut } from "firebase/auth";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const DB_COLLECTION = "matflow_data";
@@ -115,11 +115,22 @@ const deserializeMaterial = (material) => {
 };
 
 export const api = {
-    auth: {
+auth: {
         login: async (email, password) => {
             const res = await signInWithEmailAndPassword(auth, email, password);
             return { id: res.user.uid, username: email, name: email.split('@')[0], roleId: 'USER', email: email };
         },
+
+        // 👇 [이 부분이 꼭 있어야 합니다!] 👇
+        register: async (email, password, name) => {
+            const res = await createUserWithEmailAndPassword(auth, email, password);
+            if (name) {
+                await updateProfile(res.user, { displayName: name });
+            }
+            return { id: res.user.uid, username: email, name: name, roleId: 'USER', email: email };
+        },
+        // 👆 [여기까지 추가해 주세요] 👆
+
         logout: async () => await signOut(auth)
     },
     materials: {

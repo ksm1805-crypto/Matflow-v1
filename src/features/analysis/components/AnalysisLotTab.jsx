@@ -23,30 +23,30 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === activeLotId ? { ...l, [key]: val } : l) }); 
     };
     
-    // [핵심] Base64 문자열을 Blob 객체(가상 파일)로 변환하는 함수
-    // 이것이 있어야 PDF가 Blank 없이 제대로 열립니다.
-    const base64ToBlob = (base64, mimeType = 'application/pdf') => {
-        try {
-            // Data URI 헤더가 있다면 제거 (ex: "data:application/pdf;base64,")
-            const base64Clean = base64.includes(',') ? base64.split(',')[1] : base64;
-            
-            const byteCharacters = atob(base64Clean);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            return new Blob([byteArray], { type: mimeType });
-        } catch (e) {
-            console.error("Blob conversion failed:", e);
-            return null;
-        }
-    };
+    // [확인하세요!] base64ToBlob 함수가 여기서 완전히 삭제되었습니다.
 
-    // [핵심] 파일 리스트 렌더링 및 PDF 열기 로직
+    // [수정됨] Firebase URL 전용 렌더링 함수
     const renderFileList = (files, updateFilesKey) => {
         const fileList = Array.isArray(files) ? files : [];
         if (fileList.length === 0) return null;
+
+        // 파일명 추출 (URL에서 깔끔하게 뽑아내기)
+        const getFileName = (file) => {
+            // 1. File 객체 또는 저장된 객체 ({name: "..."})
+            if (file.name) return file.name;
+            
+            // 2. Firebase URL 문자열
+            const urlStr = typeof file === 'string' ? file : (file.url || file.src);
+            if (typeof urlStr === 'string' && urlStr.startsWith('http')) {
+                try {
+                    const decoded = decodeURIComponent(urlStr);
+                    const baseName = decoded.split('/o/').pop().split('?')[0].split('/').pop();
+                    const parts = baseName.split('_');
+                    return parts.length > 1 && !isNaN(parts[0]) ? parts.slice(1).join('_') : baseName;
+                } catch { return 'Stored File'; }
+            }
+            return 'Unknown File';
+        };
 
         const handleDelete = (index) => {
             if (readOnly) return;
@@ -54,64 +54,58 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
             updateLot(updateFilesKey, newFiles);
         };
 
+        // [핵심 수정] 클릭 핸들러: 복잡한 로직 없이 URL이면 바로 엽니다.
         const handleFileClick = (file) => {
-            const fileUrl = file.data || file.src || file.url;
-            
-            if (fileUrl) {
-                const isPdf = file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf');
-                
-                if (isPdf) {
-                    // PDF 처리: Blob으로 변환하여 새 탭에서 열기
-                    const blob = base64ToBlob(fileUrl, 'application/pdf');
-                    if (blob) {
-                        const blobUrl = URL.createObjectURL(blob);
-                        window.open(blobUrl, '_blank');
-                    } else {
-                        alert("PDF 파일을 여는 데 실패했습니다.");
-                    }
-                } else {
-                    // 이미지 처리: 기존 방식 (새 창에 이미지 태그 쓰기)
-                    const newWindow = window.open();
-                    if (newWindow) {
-                         newWindow.document.write(
-                            `<title>${file.name}</title>
-                             <body style="margin:0; display:flex; justify-content:center; align-items:center; background:#f5f5f5;">
-                                <img src='${fileUrl}' style='max-width:100%; max-height:100vh;' />
-                             </body>`
-                        );
-                    }
-                }
+            // 1. URL 찾기
+            const fileUrl = typeof file === 'string' ? file : (file.url || file.src);
+
+            // 2. URL이 있고 http로 시작하면 새 창으로 열기 (Firebase Link)
+            if (fileUrl && typeof fileUrl === 'string' && fileUrl.startsWith('http')) {
+                window.open(fileUrl, '_blank');
+            } else {
+                // 3. URL이 없으면 (아직 저장 안 된 상태) -> 변환 시도 X, 그냥 저장 안내
+                // 여기에 alert나 변환 로직을 넣지 않으면 에러가 절대 날 수 없습니다.
+                alert("파일을 보려면 먼저 상단의 [Save to Cloud] 버튼을 눌러 저장해주세요.");
             }
         };
 
         return (
             <div className="mt-2 space-y-1 relative block">
-                {fileList.map((file, index) => (
-                    <div 
-                        key={index} 
-                        className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded text-xs group hover:shadow-md transition cursor-pointer" 
-                        onClick={() => handleFileClick(file)}
-                    >
-                        <div className="flex items-center gap-2 overflow-hidden flex-1">
-                            <Icon 
-                                name={file.name?.toLowerCase().endsWith('.pdf') ? 'file-text' : 'image'} 
-                                size={14} 
-                                className={file.name?.toLowerCase().endsWith('.pdf') ? "text-rose-500" : "text-blue-500"}
-                            />
-                            <span className="text-slate-700 truncate font-medium hover:underline">
-                                {file.name || `File ${index + 1}`}
-                            </span>
+                {fileList.map((file, index) => {
+                    const fileName = getFileName(file);
+                    const isPdf = fileName.toLowerCase().endsWith('.pdf');
+                    
+                    // URL이 존재하면 저장된 상태
+                    const urlStr = typeof file === 'string' ? file : (file.url || file.src);
+                    const isSaved = urlStr && typeof urlStr === 'string' && urlStr.startsWith('http');
+
+                    return (
+                        <div 
+                            key={index} 
+                            className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded text-xs group hover:shadow-md transition cursor-pointer" 
+                            onClick={() => handleFileClick(file)}
+                        >
+                            <div className="flex items-center gap-2 overflow-hidden flex-1">
+                                <Icon 
+                                    name={isPdf ? 'file-text' : 'image'} 
+                                    size={14} 
+                                    className={isPdf ? "text-rose-500" : "text-blue-500"}
+                                />
+                                <span className={`truncate font-medium hover:underline ${isSaved ? 'text-blue-600 font-bold' : 'text-slate-400 italic'}`}>
+                                    {fileName} {isSaved ? '' : '(저장 필요)'}
+                                </span>
+                            </div>
+                            {!readOnly && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(index); }} 
+                                    className="text-slate-400 hover:text-rose-500 p-1"
+                                >
+                                    <Icon name="x" size={14}/>
+                                </button>
+                            )}
                         </div>
-                        {!readOnly && (
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); handleDelete(index); }} 
-                                className="text-slate-400 hover:text-rose-500 p-1"
-                            >
-                                <Icon name="x" size={14}/>
-                            </button>
-                        )}
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         );
     };
@@ -324,7 +318,6 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                                             </div>
                                             
                                             <div className="grid grid-cols-2 gap-6">
-                                                {/* [수정됨] flex-col을 사용하여 파일 목록이 늘어나면 자연스럽게 아래 컨텐츠를 밀어내도록 함 */}
                                                 <div className="flex flex-col">
                                                     <FileUploader 
                                                         files={activeLot.hplcSynFiles || []} 
