@@ -1,97 +1,134 @@
 import React, { useState } from 'react';
-import { Card } from '../../components/ui/Card';
+import { api } from '../../services/api';
 import { Icon } from '../../components/ui/Icon';
 
-export const AuthScreen = ({ onLogin, users }) => {
-    const [username, setUsername] = useState('');
+export const AuthScreen = ({ onLogin }) => {
+    const [isLoginMode, setIsLoginMode] = useState(true); // 로그인 <-> 가입 전환용
+    
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [name, setName] = useState(''); // 가입할 때만 사용
+    
     const [error, setError] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
+    const [loading, setLoading] = useState(false);
 
-    const handleLogin = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        setIsLoading(true);
         setError('');
+        setLoading(true);
 
-        // 로딩 효과
-        setTimeout(() => {
-            // [수정] 아이디/비번만 확인하고 isActive 여부는 무시합니다.
-            const user = users.find(u => 
-                u.username.toLowerCase() === username.toLowerCase() && 
-                u.password === password
-            );
-
-            if (user) {
-                // 계정 상태(isActive) 체크 로직 제거 -> 바로 로그인 성공 처리
-                onLogin(user);
+        try {
+            let user;
+            if (isLoginMode) {
+                // 로그인 시도
+                user = await api.auth.login(email, password);
             } else {
-                setError('Invalid username or password.');
+                // 회원가입 시도
+                if (!name.trim()) throw new Error("Please enter your name.");
+                user = await api.auth.register(email, password, name);
             }
-            setIsLoading(false);
-        }, 600);
+            onLogin(user); // 성공 시 메인 화면으로 이동
+        } catch (err) {
+            console.error(err);
+            // 에러 메시지 처리
+            if (err.code === 'auth/email-already-in-use') {
+                setError('Email is already in use.');
+            } else if (err.code === 'auth/weak-password') {
+                setError('Password should be at least 6 characters.');
+            } else if (err.code === 'auth/invalid-credential') {
+                setError('Invalid email or password.');
+            } else {
+                setError(err.message);
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
-            <Card className="w-full max-w-md p-8 shadow-2xl border-t-4 border-t-brand-600">
+        <div className="min-h-screen flex items-center justify-center bg-slate-100">
+            <div className="bg-white p-8 rounded-xl shadow-xl w-full max-w-md border border-slate-200">
                 <div className="text-center mb-8">
-                    <div className="flex justify-center items-center gap-2 mb-2">
-                        <Icon name="layers" size={32} className="text-brand-600"/>
+                    <div className="flex justify-center mb-4">
+                        <div className="p-3 bg-brand-50 rounded-full">
+                            <Icon name="layers" size={40} className="text-brand-600" />
+                        </div>
                     </div>
-                    <h1 className="text-3xl font-black text-slate-800 tracking-tight">OLED <span className="text-brand-600">Matflow</span></h1>
-                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Material Data Management System</p>
+                    <h1 className="text-2xl font-black text-slate-800">OLED Matflow</h1>
+                    <p className="text-slate-400 text-sm mt-2 font-bold">
+                        {isLoginMode ? 'Sign In to Cloud' : 'Create New Account'}
+                    </p>
                 </div>
 
-                <form onSubmit={handleLogin} className="space-y-5">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Username</label>
-                        <div className="relative">
-                            <Icon name="user" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    {error && <div className="bg-rose-50 text-rose-600 p-3 rounded-lg text-xs font-bold text-center border border-rose-100">{error}</div>}
+                    
+                    {/* 이름 입력 (회원가입일 때만 표시) */}
+                    {!isLoginMode && (
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Full Name</label>
                             <input 
                                 type="text" 
-                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-50 transition"
-                                placeholder="Enter your ID"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
+                                required
+                                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition font-medium"
+                                placeholder="John Doe"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
                             />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1 ml-1">Password</label>
-                        <div className="relative">
-                            <Icon name="lock" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                            <input 
-                                type="password" 
-                                className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-brand-500 focus:ring-4 focus:ring-brand-50 transition"
-                                placeholder="Enter password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    {error && (
-                        <div className="bg-rose-50 text-rose-500 text-xs font-bold p-3 rounded-lg flex items-center gap-2 animate-pulse">
-                            <Icon name="alert-circle" size={16}/> {error}
                         </div>
                     )}
 
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Email</label>
+                        <input 
+                            type="email" 
+                            required
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition font-medium"
+                            placeholder="user@example.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">Password</label>
+                        <input 
+                            type="password" 
+                            required
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500 outline-none transition font-medium"
+                            placeholder="••••••••"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                        />
+                    </div>
+
                     <button 
                         type="submit" 
-                        disabled={isLoading}
-                        className="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand-200 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                        disabled={loading}
+                        className="w-full bg-brand-600 hover:bg-brand-700 text-white p-3 rounded-lg font-bold shadow-lg shadow-brand-200 transition flex justify-center items-center gap-2"
                     >
-                        {isLoading ? <Icon name="loader" className="animate-spin"/> : 'Sign In'}
+                        {loading ? 'Processing...' : (isLoginMode ? 'Sign In' : 'Sign Up')}
                     </button>
                 </form>
-
-                <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-                    <p className="text-[10px] text-slate-400">
-                        Default Admin: <strong className="text-slate-600">admin / admin123</strong>
+                
+                <div className="mt-6 text-center border-t border-slate-100 pt-4">
+                    <p className="text-xs text-slate-400 mb-2">
+                        {isLoginMode ? "Don't have an account?" : "Already have an account?"}
                     </p>
+                    <button 
+                        onClick={() => {
+                            setIsLoginMode(!isLoginMode);
+                            setError('');
+                            setEmail('');
+                            setPassword('');
+                            setName('');
+                        }}
+                        className="text-brand-600 font-bold text-sm hover:underline"
+                    >
+                        {isLoginMode ? 'Create Account' : 'Back to Login'}
+                    </button>
                 </div>
-            </Card>
+            </div>
         </div>
     );
 };
