@@ -22,20 +22,14 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
     const updateLot = (key, val) => { 
         if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === activeLotId ? { ...l, [key]: val } : l) }); 
     };
-    
-    // [확인하세요!] base64ToBlob 함수가 여기서 완전히 삭제되었습니다.
 
-    // [수정됨] Firebase URL 전용 렌더링 함수
+    // Firebase URL 전용 렌더링 함수
     const renderFileList = (files, updateFilesKey) => {
         const fileList = Array.isArray(files) ? files : [];
         if (fileList.length === 0) return null;
 
-        // 파일명 추출 (URL에서 깔끔하게 뽑아내기)
         const getFileName = (file) => {
-            // 1. File 객체 또는 저장된 객체 ({name: "..."})
             if (file.name) return file.name;
-            
-            // 2. Firebase URL 문자열
             const urlStr = typeof file === 'string' ? file : (file.url || file.src);
             if (typeof urlStr === 'string' && urlStr.startsWith('http')) {
                 try {
@@ -54,17 +48,11 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
             updateLot(updateFilesKey, newFiles);
         };
 
-        // [핵심 수정] 클릭 핸들러: 복잡한 로직 없이 URL이면 바로 엽니다.
         const handleFileClick = (file) => {
-            // 1. URL 찾기
             const fileUrl = typeof file === 'string' ? file : (file.url || file.src);
-
-            // 2. URL이 있고 http로 시작하면 새 창으로 열기 (Firebase Link)
             if (fileUrl && typeof fileUrl === 'string' && fileUrl.startsWith('http')) {
                 window.open(fileUrl, '_blank');
             } else {
-                // 3. URL이 없으면 (아직 저장 안 된 상태) -> 변환 시도 X, 그냥 저장 안내
-                // 여기에 alert나 변환 로직을 넣지 않으면 에러가 절대 날 수 없습니다.
                 alert("파일을 보려면 먼저 상단의 [Save to Cloud] 버튼을 눌러 저장해주세요.");
             }
         };
@@ -74,8 +62,6 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                 {fileList.map((file, index) => {
                     const fileName = getFileName(file);
                     const isPdf = fileName.toLowerCase().endsWith('.pdf');
-                    
-                    // URL이 존재하면 저장된 상태
                     const urlStr = typeof file === 'string' ? file : (file.url || file.src);
                     const isSaved = urlStr && typeof urlStr === 'string' && urlStr.startsWith('http');
 
@@ -110,7 +96,6 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         );
     };
 
-    // RRT 계산 로직
     const calculateGridRRT = (gridData) => {
         if (!gridData || gridData.length < 4) return gridData;
         const newData = gridData.map(row => [...row]);
@@ -144,7 +129,6 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         return newData;
     };
 
-    // Mix Preset 설정
     const setMixPreset = (type) => {
         if (readOnly) return;
         if (type === 'PPN') {
@@ -160,13 +144,34 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         }
     };
 
+    // [수정됨] 기존 Lot을 복제하여 새로운 Lot 추가
     const addLot = () => { 
-        if(!readOnly) { 
-            const baseData = { name: `LOT-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${material.lots.length + 1}` };
-            const newLot = sanitizeLot(baseData); 
-            updateMaterial({ ...material, lots: [...material.lots, newLot] }); 
-            setActiveLotId(newLot.id); 
+        if (readOnly) return;
+
+        // 1. 새로운 이름 생성 (날짜 + 번호)
+        const todayStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+        const nextNum = material.lots.length + 1;
+        const newName = `LOT-${todayStr}-${nextNum}`;
+
+        let newLot;
+
+        if (activeLot) {
+            // 2. [Clone] 현재 활성화된 Lot을 깊은 복사 (Deep Copy)
+            // JSON.parse(JSON.stringify())를 사용하여 중첩된 객체(costData, steps, grids 등)까지 모두 복사
+            newLot = JSON.parse(JSON.stringify(activeLot));
+            
+            // 3. 고유 ID와 이름은 새로 부여
+            newLot.id = Date.now();
+            newLot.name = newName;
+        } else {
+            // 4. [Fallback] 만약 복사할 Lot이 없다면 초기화된 새 Lot 생성
+            const baseData = { name: newName };
+            newLot = sanitizeLot(baseData);
         }
+
+        // 5. 상태 업데이트
+        updateMaterial({ ...material, lots: [...material.lots, newLot] }); 
+        setActiveLotId(newLot.id); 
     };
 
     const getCurrentGrid = () => {
@@ -215,7 +220,7 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
             <div className="w-64 border-r border-slate-200 bg-white flex flex-col">
                 <div className="p-4 border-b border-slate-200 flex justify-between items-center">
                     <span className="font-bold text-xs text-slate-500">SELECT LOT</span>
-                    {!readOnly && <button onClick={addLot} className="text-brand-600 hover:bg-brand-50 rounded p-1"><Icon name="plus" size={14}/></button>}
+                    {!readOnly && <button onClick={addLot} className="text-brand-600 hover:bg-brand-50 rounded p-1" title="Duplicate current Lot"><Icon name="plus" size={14}/></button>}
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {material.lots.map(l => (

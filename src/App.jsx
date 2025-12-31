@@ -1,5 +1,5 @@
 /**
- * OLED Matflow v1.11 - UI Restored with Add Project & Cloud Storage
+ * OLED Matflow v1.17 - Added Project Structure Thumbnail & Ketcher Integration
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from './services/api'; 
@@ -7,6 +7,7 @@ import { ROLES, PROJECT_STAGES } from './constants';
 import { Icon } from './components/ui/Icon';
 import { sanitizeMaterial } from './utils/sanitize';
 import { INITIAL_GLOBAL_INVENTORY } from './utils/initialData';
+import { KetcherModal } from './components/ui/KetcherModal';
 
 // Feature Components
 import { AuthScreen } from './features/auth/AuthScreen';
@@ -21,26 +22,57 @@ import { ProductionCalendarTab } from './features/production/ProductionCalendarT
 
 const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory }) => {
     const [materials, setMaterials] = useState([]);
+    const [productionEvents, setProductionEvents] = useState([]);
+
     const [activeId, setActiveId] = useState(null);
     const [activeTab, setActiveTab] = useState('history');
     const [showAdminPanel, setShowAdminPanel] = useState(false);
     
+    // 구조식 모달 상태
+    const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
+
     const [isDataLoading, setIsDataLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    // [에러 해결] Stage 라벨/값 추출 함수
     const getStageLabel = (stage) => (typeof stage === 'object' ? (stage.name || stage.id || 'Unknown') : stage);
     const getStageValue = (stage) => (typeof stage === 'object' ? (stage.id || stage.name) : stage);
-    const getStageColor = (stage) => (typeof stage === 'object' ? (stage.color || 'bg-slate-100 text-slate-500 border-slate-200') : 'bg-slate-100 text-slate-500 border-slate-200');
+
+    const activeMat = materials.find(m => m.id === activeId);
+
+    // [변경] 현재 활성화된 프로젝트의 생산 일정만 필터링
+    const activeProjectEvents = useMemo(() => {
+        if (!activeMat) return [];
+        // projectId가 없는 레거시 데이터 처리가 필요하다면 여기서 처리하거나, 
+        // 새 일정은 무조건 projectId를 가지게 됨.
+        return productionEvents.filter(e => e.projectId === activeMat.id);
+    }, [productionEvents, activeMat]);
+
+    // [변경] 프로젝트별 일정 업데이트 핸들러 (전체 목록에 병합)
+    const handleUpdateProjectEvents = (updatedEventsForProject) => {
+        if (!activeMat) return;
+
+        setProductionEvents(prevGlobalEvents => {
+            // 1. 현재 프로젝트가 아닌 다른 프로젝트들의 일정은 유지
+            const otherEvents = prevGlobalEvents.filter(e => e.projectId !== activeMat.id);
+            // 2. 현재 프로젝트의 수정된 일정을 합침
+            return [...otherEvents, ...updatedEventsForProject];
+        });
+    };
 
     // 1. 데이터 초기 로드
     useEffect(() => {
         const load = async () => {
             setIsDataLoading(true);
             try {
-                const data = await api.materials.getAll();
-                const safeData = data.map(m => sanitizeMaterial(m));
+                const [matData, prodData] = await Promise.all([
+                    api.materials.getAll(),
+                    api.production.getAll()
+                ]);
+
+                const safeData = matData.map(m => sanitizeMaterial(m));
                 setMaterials(safeData);
+                setProductionEvents(prodData || []);
+
                 if (safeData.length > 0) setActiveId(safeData[0].id);
             } catch (error) {
                 console.error("데이터 로드 실패:", error);
@@ -56,10 +88,26 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
         if (isSaving || isDataLoading) return;
         setIsSaving(true);
         try {
-            await api.materials.saveAll(materials);
-            const refreshed = await api.materials.getAll();
-            setMaterials(refreshed.map(m => sanitizeMaterial(m)));
-            alert("✅ 모든 데이터와 파일이 클라우드에 저장되었습니다.");
+            await Promise.all([
+                api.materials.saveAll(materials),
+                api.production.saveAll(productionEvents), // 전체 이벤트를 저장
+                api.inventory.saveGlobal(globalInventory) 
+            ]);
+            
+            const [refreshedMats, refreshedProds, refreshedInv] = await Promise.all([
+                api.materials.getAll(),
+                api.production.getAll(),
+                api.inventory.getGlobal()
+            ]);
+
+            setMaterials(refreshedMats.map(m => sanitizeMaterial(m)));
+            setProductionEvents(refreshedProds || []);
+            
+            if (refreshedInv && updateGlobalInventory) {
+                updateGlobalInventory(refreshedInv);
+            }
+            
+            alert("✅ 모든 데이터(프로젝트, 생산 일정, 마스터 재고)가 저장되었습니다.");
         } catch (error) {
             console.error("Save failed:", error);
             alert("저장 실패: " + error.message);
@@ -68,29 +116,57 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
         }
     };
 
+    // 3. Global Keyboard Shortcut (Ctrl+S / Cmd+S)
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault(); 
+                console.log("⌨️ Shortcut detected: Saving to Cloud...");
+                saveToCloud();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [saveToCloud]);
+
     const updateActiveMat = (newMat) => {
         setMaterials(prev => prev.map(m => m.id === newMat.id ? newMat : m));
     };
 
-    // [복구됨] 새 프로젝트 추가 함수
+    // 프로젝트 구조식 저장 핸들러
+    const handleProjectStructureSave = (smiles, mol, svg) => {
+        if (!activeMat) return;
+        const updatedMat = {
+            ...activeMat,
+            structureSmiles: smiles || '',
+            structureMol: mol || '',
+            structureSvg: svg || ''
+        };
+        updateActiveMat(updatedMat);
+        setIsStructureModalOpen(false);
+    };
+
     const addMat = () => {
+        const defaultYear = new Date().getFullYear();
+        const inputYear = window.prompt("Enter Project Year (YYYY):", defaultYear);
+        if (inputYear === null) return;
+        const year = parseInt(inputYear, 10) || defaultYear;
+
         const newId = Date.now();
         const newMat = sanitizeMaterial({
             id: newId,
             name: `New Project ${new Date().toISOString().slice(0,10)}`,
-            year: new Date().getFullYear(),
-            stage: 'PRE_MASS', // 문자열로 저장 (객체 X)
+            year: year,
+            stage: 'PRE_MASS',
             lots: []
         });
         setMaterials([newMat, ...materials]);
         setActiveId(newId);
     };
 
-    const activeMat = materials.find(m => m.id === activeId);
     const userRole = ROLES[currentUser.roleId] || ROLES.GUEST;
     const isReadOnlyMode = !userRole.canEdit;
 
-    // 사이드바 연도별 그룹화 로직
     const materialsByYear = useMemo(() => {
         const groups = {};
         materials.forEach(m => {
@@ -105,7 +181,7 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
         { id: 'history', label: 'History' },
         { id: 'analysis', label: 'Analysis' },
         { id: 'cost', label: 'Cost' },
-        { id: 'stock', label: 'Inventory' },
+        { id: 'stock', label: 'Product Stock' },
         { id: 'master', label: 'Master Stock' },
         { id: 'production', label: 'Production' },
         { id: 'regression', label: 'Regression' }
@@ -113,13 +189,13 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
 
     return (
         <div className="flex h-screen bg-slate-100 text-slate-800 font-sans">
-            {/* 사이드바 (예전 디자인 복원) */}
+            {/* 사이드바 */}
             <div className="w-64 border-r border-slate-200 bg-white flex flex-col z-20 shadow-lg">
                 <div className="p-6 border-b border-slate-100">
                     <div className="flex items-center gap-2 text-slate-800 font-black text-xl mb-1">
                         <Icon name="layers" size={24} className="text-brand-600"/> OLED<span className="text-brand-600"> Matflow</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.11 Cloud Edition</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.17 Cloud Edition</div>
                 </div>
                 
                 <div className="p-4 bg-slate-50 border-b border-slate-200">
@@ -136,7 +212,6 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-3 custom-scrollbar">
-                    {/* 관리자 메뉴 */}
                     {currentUser.roleId === 'ADMIN' && (
                         <button 
                             onClick={() => setShowAdminPanel(true)} 
@@ -146,7 +221,6 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                         </button>
                     )}
                     
-                    {/* 프로젝트 추가 헤더 (복원됨) */}
                     <div className="text-xs font-bold text-slate-400 px-3 mb-2 mt-2 flex justify-between items-center">
                         <span>PROJECTS</span>
                         {!isReadOnlyMode && (
@@ -200,7 +274,7 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                 </div>
             </div>
 
-            {/* 메인 콘텐츠 영역 */}
+            {/* 메인 콘텐츠 */}
             <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
                 {showAdminPanel ? (
                     <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50">
@@ -210,6 +284,42 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                     <>
                         <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 p-4 z-10 flex justify-between items-center shadow-sm">
                             <div className="flex gap-4 items-center">
+                                {/* 구조식 썸네일 */}
+                                <div 
+                                    onClick={() => !isReadOnlyMode && setIsStructureModalOpen(true)}
+                                    className={`w-14 h-14 rounded-lg border bg-white flex items-center justify-center cursor-pointer overflow-hidden transition relative group shadow-sm ${
+                                        activeMat.structureSvg ? 'border-brand-200' : 'border-slate-200 border-dashed hover:border-brand-400'
+                                    }`}
+                                    title={isReadOnlyMode ? "Structure View" : "Click to Draw Structure"}
+                                >
+                                    {activeMat.structureSvg ? (
+                                        <div 
+                                            className="w-full h-full p-1 flex items-center justify-center pointer-events-none [&_svg]:w-full [&_svg]:h-full"
+                                            dangerouslySetInnerHTML={{ __html: activeMat.structureSvg }}
+                                        />
+                                    ) : (
+                                        <Icon name="hexagon" size={20} className="text-slate-300 group-hover:text-brand-500 transition"/>
+                                    )}
+                                    {!isReadOnlyMode && (
+                                        <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                                            <Icon name="edit-2" size={14} className="text-slate-700"/>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 연도 수정 */}
+                                <div className="flex items-baseline gap-2">
+                                    <input 
+                                        disabled={isReadOnlyMode} 
+                                        type="number"
+                                        className="bg-transparent text-lg font-bold text-slate-400 outline-none w-16 border-b-2 border-transparent hover:border-slate-300 focus:border-brand-500 transition text-right placeholder:text-slate-300" 
+                                        value={activeMat.year} 
+                                        onChange={e => updateActiveMat({...activeMat, year: parseInt(e.target.value) || new Date().getFullYear()})} 
+                                        placeholder="YYYY"
+                                    />
+                                    <span className="text-slate-300 text-xl font-light">/</span>
+                                </div>
+
                                 <input 
                                     disabled={isReadOnlyMode} 
                                     className="bg-transparent text-2xl font-black text-slate-800 outline-none w-64 border-b-2 border-transparent hover:border-slate-300 focus:border-brand-500 transition placeholder:text-slate-300" 
@@ -235,6 +345,7 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                                 <button 
                                     onClick={saveToCloud} 
                                     disabled={isSaving}
+                                    title="Shortcut: Ctrl+S"
                                     className={`px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 text-white shadow-md transition-all active:scale-95 ${
                                         isSaving ? 'bg-slate-400 cursor-not-allowed' : 'bg-brand-600 hover:bg-brand-700 shadow-brand-200'
                                     }`}
@@ -258,9 +369,19 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                                 {activeTab === 'history' && <AnalysisHistoryTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />}
                                 {activeTab === 'analysis' && <UnifiedAnalysisTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />}
                                 {activeTab === 'cost' && <CostTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />}
-                                {activeTab === 'stock' && <StockTab material={activeMat} updateMaterial={updateActiveMat} globalInventory={globalInventory} updateGlobalInventory={updateGlobalInventory} readOnly={isReadOnlyMode} />}
+                                {activeTab === 'stock' && <StockTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />}
                                 {activeTab === 'master' && <MasterStockTab globalInventory={globalInventory} updateGlobalInventory={updateGlobalInventory} readOnly={isReadOnlyMode} />}
-                                {activeTab === 'production' && <ProductionCalendarTab />}
+                                
+                                {/* [변경] Production 탭에 필터링된 이벤트, 업데이트 핸들러, 프로젝트 ID 전달 */}
+                                {activeTab === 'production' && (
+                                    <ProductionCalendarTab 
+                                        events={activeProjectEvents} 
+                                        onUpdateEvents={handleUpdateProjectEvents}
+                                        projectId={activeMat.id}
+                                        projectName={activeMat.name}
+                                    />
+                                )}
+                                
                                 {activeTab === 'regression' && <RegressionTab material={activeMat} />}
                             </div>
                         </main>
@@ -276,6 +397,16 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                         )}
                     </div>
                 ))}
+
+                {/* Ketcher Modal */}
+                {isStructureModalOpen && activeMat && (
+                    <KetcherModal 
+                        isOpen={isStructureModalOpen} 
+                        onClose={() => setIsStructureModalOpen(false)} 
+                        onSave={handleProjectStructureSave} 
+                        initialSmiles={activeMat.structureSmiles} 
+                    />
+                )}
             </div>
         </div>
     );

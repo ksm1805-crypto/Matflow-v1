@@ -12,21 +12,21 @@ export const sanitizeLot = (lot) => {
     return {
         id: lot.id || generateId(),
         name: lot.name || 'New Lot',
+        
         synDateStart: lot.synDateStart || '',
         synDateEnd: lot.synDateEnd || '',
+        synSite: lot.synSite || '',
+        subSite: lot.subSite || '',
         
-        // ... (기존 필드들 유지) ...
         synYield: lot.synYield || '', subYield: lot.subYield || '',
         unitCost: lot.unitCost || '', actualOutput: lot.actualOutput || '',
         hplcSyn: lot.hplcSyn || '', hplcSub: lot.hplcSub || '', 
         
-        // Mix Logic
         isMix: lot.isMix || false,
         mixCount: lot.mixCount || 2,
         comp1Label: lot.comp1Label || 'P', comp2Label: lot.comp2Label || 'N', comp3Label: lot.comp3Label || '3rd',
         pRatio: lot.pRatio || '', nRatio: lot.nRatio || '', mixRatio3: lot.mixRatio3 || '',
         
-        // Mix Components Data
         synYieldP: lot.synYieldP || '', subYieldP: lot.subYieldP || '',
         hplcSynP: lot.hplcSynP || '', hplcSubP: lot.hplcSubP || '', dRateP: lot.dRateP || '',
         synYieldN: lot.synYieldN || '', subYieldN: lot.subYieldN || '',
@@ -43,10 +43,7 @@ export const sanitizeLot = (lot) => {
         hplcGridN: ensureGrid(lot.hplcGridN),
         hplcGrid3: ensureGrid(lot.hplcGrid3),
         
-        // [수정] 파일 저장소 분리 (Syn / Sub)
-        // hplcSynFiles: 합성 단계 성적서 (배열이므로 여러 개 가능)
         hplcSynFiles: Array.isArray(lot.hplcSynFiles) ? lot.hplcSynFiles : [],
-        // [추가] hplcSubFiles: 승화 단계 성적서
         hplcSubFiles: Array.isArray(lot.hplcSubFiles) ? lot.hplcSubFiles : [],
         
         td1: lot.td1 || '', td5: lot.td5 || '',
@@ -62,12 +59,17 @@ export const sanitizeLot = (lot) => {
 };
 
 export const sanitizeMaterial = (mat) => {
-    // (기존 sanitizeMaterial 코드는 그대로 유지)
     return {
         id: mat.id || generateId(),
         name: mat.name || 'New Material',
         year: mat.year || new Date().getFullYear(),
         stage: mat.stage || 'DEV',
+        
+        // [추가됨] 프로젝트 구조식 필드 (이 부분이 없으면 저장이 안 됩니다)
+        structureSmiles: mat.structureSmiles || '',
+        structureMol: mat.structureMol || '',
+        structureSvg: mat.structureSvg || '',
+
         lots: Array.isArray(mat.lots) ? mat.lots.map(sanitizeLot) : [],
         thermalData: Array.isArray(mat.thermalData) ? mat.thermalData : Array(5).fill(null).map(() => ({ temp: '', hplc: '', device: '', hplcImg: null, deviceImg: null })),
         residueData: Array.isArray(mat.residueData) ? mat.residueData : [],

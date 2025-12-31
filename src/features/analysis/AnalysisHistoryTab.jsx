@@ -28,7 +28,16 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
 
     const allRRTs = useMemo(() => crossLotPeaks.map(p => p.rrt), [crossLotPeaks]);
     
-    const updateLot = (id, field, val) => { if(!readOnly) updateMaterial({ ...material, lots: material.lots.map(l => l.id === id ? { ...l, [field]: val } : l) }); };
+    // ✅ [핵심 수정] 데이터 업데이트 함수
+    const updateLot = (id, field, val) => { 
+        if(!readOnly) {
+            updateMaterial({ 
+                ...material, 
+                lots: material.lots.map(l => l.id === id ? { ...l, [field]: val } : l) 
+            });
+        }
+    };
+    
     const toggleRef = (id) => setRefLotIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
     const renderCompValue = (lot, keyPrefix, unit = '%', color = 'text-slate-700') => {
@@ -67,8 +76,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                                 <th className="p-3 sticky left-0 z-20 bg-slate-100 border-r border-slate-200 shadow-sm">Lot No.</th>
                                 <th className="p-3 w-32">Period</th>
                                 
-                                {/* Step, Syn Site, Sub Site 컬럼 삭제됨 */}
-                                
                                 {/* Syn Yield + Site 통합 헤더 */}
                                 <th className="p-3 text-blue-700 bg-blue-50/50 text-center">
                                     Syn % <span className="text-[10px] text-slate-400 font-normal">/ Site</span>
@@ -86,7 +93,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                         </thead>
                         <tbody className="divide-y divide-slate-100 bg-white">
                             {material.lots.map(lot => {
-                                // Step 판단 로직 (배경색 강조용으로 로직은 유지)
                                 const stepName = (lot.step || '').toUpperCase();
                                 const isSyn = ['SYNTHESIS', 'CRUDE', 'INT'].some(s => stepName.includes(s)) || stepName === 'SYNTHESIS';
                                 const isSub = ['SUBLIMATION', 'SUB'].some(s => stepName.includes(s)) || stepName === 'SUBLIMATION';
@@ -94,31 +100,36 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                                 return (
                                 <tr key={lot.id} className="hover:bg-slate-50 transition">
                                     <td className="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-sm">{lot.name}</td>
-                                    <td className="p-3"><div className="flex flex-col gap-1"><input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateStart} onChange={e=>updateLot(lot.id, 'synDateStart', e.target.value)}/><input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateEnd} onChange={e=>updateLot(lot.id, 'synDateEnd', e.target.value)}/></div></td>
                                     
-                                    {/* [수정] Syn Yield + Site 통합 셀 */}
+                                    {/* 날짜 입력 필드 */}
+                                    <td className="p-3"><div className="flex flex-col gap-1">
+                                        <input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateStart || ''} onChange={e=>updateLot(lot.id, 'synDateStart', e.target.value)}/>
+                                        <input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateEnd || ''} onChange={e=>updateLot(lot.id, 'synDateEnd', e.target.value)}/>
+                                    </div></td>
+                                    
+                                    {/* [수정됨] Syn Yield + Site 통합 셀 */}
                                     <td className={`p-3 text-center align-middle transition-colors ${isSyn ? 'bg-blue-50/50' : 'opacity-60'}`}>
                                         <div className="flex flex-col items-center gap-1">
                                             {renderCompValue(lot, 'synYield', '%')}
                                             <input 
                                                 disabled={readOnly} 
-                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-400 placeholder:text-slate-300 border-t border-slate-100 pt-0.5" 
-                                                value={lot.synSite} 
-                                                onChange={e=>updateLot(lot.id,'synSite',e.target.value)} 
+                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-500 font-medium placeholder:text-slate-300 border-t border-slate-200 pt-1 focus:border-blue-300" 
+                                                value={lot.synSite || ''} // ✅ 여기서 || '' 처리를 해줘야 입력이 잘 됩니다
+                                                onChange={e=>updateLot(lot.id, 'synSite', e.target.value)} 
                                                 placeholder="Site"
                                             />
                                         </div>
                                     </td>
                                     
-                                    {/* [수정] Sub Yield + Site 통합 셀 */}
+                                    {/* [수정됨] Sub Yield + Site 통합 셀 */}
                                     <td className={`p-3 text-center align-middle transition-colors ${isSub ? 'bg-amber-50/50' : 'opacity-60'}`}>
                                         <div className="flex flex-col items-center gap-1">
                                             {renderCompValue(lot, 'subYield', '%')}
                                             <input 
                                                 disabled={readOnly} 
-                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-400 placeholder:text-slate-300 border-t border-slate-100 pt-0.5" 
-                                                value={lot.subSite} 
-                                                onChange={e=>updateLot(lot.id,'subSite',e.target.value)} 
+                                                className="bg-transparent w-full text-center outline-none text-[10px] text-slate-500 font-medium placeholder:text-slate-300 border-t border-slate-200 pt-1 focus:border-amber-300" 
+                                                value={lot.subSite || ''} // ✅ 여기서 || '' 처리를 해줘야 입력이 잘 됩니다
+                                                onChange={e=>updateLot(lot.id, 'subSite', e.target.value)} 
                                                 placeholder="Site"
                                             />
                                         </div>

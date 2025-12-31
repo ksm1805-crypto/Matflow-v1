@@ -6,9 +6,6 @@ import { Icon } from '../../components/ui/Icon';
 
 const localizer = momentLocalizer(moment);
 
-// ... (PROD_TYPES, PROD_STATUS, REACTOR_OPTIONS, CustomEvent 상수 및 컴포넌트 유지) ...
-// (위 코드는 기존과 동일하므로 생략하지 않고 아래 전체 코드에 포함시켰습니다)
-
 const PROD_TYPES = {
   TOLL: { code: 'TOLL', label: 'Toll Mfg (임가공)', color: 'bg-blue-50 border-blue-200 text-blue-700' },
   PILOT: { code: 'PILOT', label: 'Pilot / R&D (시양산)', color: 'bg-amber-50 border-amber-200 text-amber-700' },
@@ -53,10 +50,7 @@ const CustomEvent = ({ event }) => {
   );
 };
 
-// [중요] props로 events와 onUpdateEvents를 받습니다.
-export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
-  // 기존: const [events, setEvents] = useState([...]);  <-- 이거 삭제됨
-
+export const ProductionCalendarTab = ({ events = [], onUpdateEvents, projectId, projectName }) => {
   const [view, setView] = useState('month');
   const [date, setDate] = useState(new Date());
 
@@ -77,8 +71,6 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
     quantity: '',
   });
 
-  // --- Handlers ---
-
   const generateBatchNo = (date) => {
     const yymmdd = moment(date).format('YYMMDD');
     const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
@@ -90,7 +82,7 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
     setSelectedSlot({ start, end });
     
     setFormData({
-      title: '',
+      title: projectName || '', // [변경] 새 일정 생성 시 프로젝트 이름 기본 입력
       batchNo: generateBatchNo(start),
       type: 'TOLL',
       status: 'PLANNED',
@@ -132,16 +124,15 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
     let updatedEvents;
 
     if (editingEventId) {
-        // [수정] props로 받은 onUpdateEvents 사용
         updatedEvents = events.map(ev => 
             ev.id === editingEventId 
-            ? { ...ev, ...formData }
+            ? { ...ev, ...formData, projectId } // [변경] 수정 시에도 projectId 유지/갱신
             : ev
         );
     } else {
-        // [신규] props로 받은 onUpdateEvents 사용
         const newEvent = {
             id: Date.now(),
+            projectId, // [변경] 새 이벤트에 projectId 할당
             ...formData,
             start: selectedSlot.start,
             end: selectedSlot.end,
@@ -149,14 +140,13 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
         updatedEvents = [...events, newEvent];
     }
 
-    onUpdateEvents(updatedEvents); // 부모에게 변경사항 알림
+    onUpdateEvents(updatedEvents);
     setIsModalOpen(false);
   };
 
   const handleDelete = () => {
     if (!editingEventId) return;
     if (window.confirm("정말 이 생산 일정을 삭제하시겠습니까?\n(복구할 수 없습니다)")) {
-        // [삭제] props로 받은 onUpdateEvents 사용
         const updatedEvents = events.filter(e => e.id !== editingEventId);
         onUpdateEvents(updatedEvents);
         setIsModalOpen(false);
@@ -176,12 +166,23 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
 
   const eventPropGetter = (event) => {
     const typeStyle = PROD_TYPES[event.type] || PROD_TYPES.TOLL;
-    let bgColor = '#eff6ff'; let borderColor = '#bfdbfe'; let textColor = '#1e40af'; let leftBorderColor = '#2563eb';
+    
+    // 기본값 (TOLL / Default)
+    let bgColor = '#eff6ff'; // blue-50
+    let borderColor = '#bfdbfe'; // blue-200
+    let textColor = '#1e40af'; // blue-800
+    let leftBorderColor = '#2563eb'; // blue-600
 
     if (event.type === 'PILOT') {
-      bgColor = '#fffbeb'; borderColor = '#fde68a'; textColor = '#92400e'; leftBorderColor = '#d97706';
+      bgColor = '#fffbeb'; // amber-50
+      borderColor = '#fde68a'; // amber-200
+      textColor = '#92400e'; // amber-800
+      leftBorderColor = '#d97706'; // amber-600
     } else if (event.type === 'CONSIGNMENT') {
-      bgColor = '#faf5ff'; borderColor = '#e9d5ff'; textColor = '#6b21a8'; leftBorderColor = '#9333ea';
+      bgColor = '#faf5ff'; // purple-50
+      borderColor = '#e9d5ff'; // purple-200
+      textColor = '#6b21a8'; // purple-800
+      leftBorderColor = '#9333ea'; // purple-600
     }
 
     return {
@@ -205,7 +206,10 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
             <Icon name="calendar" size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-800 tracking-tight">Production Scheduler</h2>
+            {/* [변경] 헤더 타이틀에 프로젝트 이름 반영 */}
+            <h2 className="text-xl font-bold text-slate-800 tracking-tight">
+                {projectName ? `${projectName} Schedule` : 'Production Scheduler'}
+            </h2>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
               Integrated Manufacturing Execution Plan
             </p>
@@ -239,7 +243,7 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
 
         <Calendar
           localizer={localizer}
-          events={events} // props로 받은 events 사용
+          events={events}
           startAccessor="start"
           endAccessor="end"
           style={{ height: '100%' }}
@@ -256,7 +260,7 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
         />
       </div>
 
-      {/* 3. Modal (Create / Edit) - 기존과 동일 */}
+      {/* 3. Modal (Create / Edit) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
@@ -282,16 +286,20 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
                         <div className="grid grid-cols-3 gap-2">
                         {Object.entries(PROD_TYPES).map(([key, val]) => (
                             <button
-                            key={key}
-                            onClick={() => setFormData({ ...formData, type: key })}
-                            className={`text-xs py-2.5 px-2 rounded-lg border font-bold transition flex flex-col items-center justify-center gap-1 ${
-                                formData.type === key
-                                ? `ring-2 ring-offset-1 ring-slate-400 ${val.color}`
-                                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
-                            }`}
+                                key={key}
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    setFormData({ ...formData, type: key });
+                                }}
+                                className={`text-xs py-2.5 px-2 rounded-lg border font-bold transition flex flex-col items-center justify-center gap-1 ${
+                                    formData.type === key
+                                    ? `ring-2 ring-offset-1 ring-slate-400 ${val.color}`
+                                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                }`}
                             >
-                            <span>{val.label.split(' (')[0]}</span>
-                            <span className="text-[10px] opacity-70">({val.label.split('(')[1]}</span>
+                                <span>{val.label.split(' (')[0]}</span>
+                                <span className="text-[10px] opacity-70">({val.label.split('(')[1]}</span>
                             </button>
                         ))}
                         </div>
@@ -353,7 +361,11 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
                                 return (
                                     <button
                                         key={opt}
-                                        onClick={() => toggleEquipment(opt)}
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            toggleEquipment(opt);
+                                        }}
                                         className={`text-xs py-2 rounded-md font-bold transition border ${
                                             isSelected 
                                             ? 'bg-slate-800 text-white border-slate-800 shadow-md transform scale-105' 
@@ -394,6 +406,7 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
                 <div>
                     {editingEventId && (
                         <button
+                            type="button"
                             onClick={handleDelete}
                             className="px-4 py-2 text-rose-600 font-bold text-sm hover:bg-rose-50 rounded-lg transition border border-transparent hover:border-rose-100 flex items-center gap-2"
                         >
@@ -404,6 +417,7 @@ export const ProductionCalendarTab = ({ events = [], onUpdateEvents }) => {
                 
                 <div className="flex gap-3">
                     <button
+                        type="button"
                         onClick={() => setIsModalOpen(false)}
                         className="px-5 py-2 text-slate-600 font-bold text-sm hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 rounded-lg transition"
                     >
