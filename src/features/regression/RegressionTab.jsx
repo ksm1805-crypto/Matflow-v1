@@ -1,61 +1,82 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
 import { SimpleScatterChart } from '../../components/charts/SimpleScatterChart';
 import { processCrossLotImpurityData } from '../../utils/math';
 import { STANDARD_METALS } from '../../constants';
 
-// 변하지 않는 상수는 컴포넌트 외부로 분리
 const HALOGEN_KEYS = ['f', 'cl', 'br'];
 
 export const RegressionTab = ({ material, lots = [] }) => {
     const [category, setCategory] = useState('MAIN'); 
     const [selectedDetail, setSelectedDetail] = useState('purity');
 
-    // material 전체가 아닌 필요한 하위 값만 의존성 배열에 넣어 최적화
     const metalElements = useMemo(() => 
         material?.specification?.metalElements || STANDARD_METALS, 
         [material?.specification?.metalElements]
     );
 
-    // Lot들의 Peak 데이터를 RRT 기준으로 정렬 및 병합
     const crossLotPeaks = useMemo(() => processCrossLotImpurityData(lots), [lots]);
 
-    // 분석용 데이터 생성
     const analysisData = useMemo(() => {
-        if (!lots || lots.length === 0) return [];
+        if (!lots || lots.length === 0) {
+            console.log("RegressionTab: No lots provided.");
+            return [];
+        }
 
-        return lots.map(lot => {
-            const lifetime = parseFloat(lot.lifetime) || 0;
-            const purity = parseFloat(lot.hplcSub) || 0;
+        console.group("Regression Analysis Data Check");
+        console.log("Raw Lots Data:", lots);
+
+        const data = lots.map(lot => {
+            // [수정] 쉼표(,) 제거 및 문자열 안전 변환 로직 추가
+            const cleanNumber = (val) => {
+                if (val === null || val === undefined || val === '') return 0;
+                const strVal = String(val).replace(/,/g, '').trim();
+                return parseFloat(strVal);
+            };
+
+            const lifetimeRaw = lot.lifetime;
+            const lifetime = cleanNumber(lifetimeRaw);
             
-            const synY = parseFloat(lot.synYield) || 0;
-            const subY = parseFloat(lot.subYield) || 0;
+            // 유효성 디버깅 로그 (문제가 있는 Lot 확인용)
+            const isValid = !isNaN(lifetime) && lifetime > 0;
+            if (!isValid) {
+                console.warn(`Lot [${lot.name}] excluded. Raw Lifetime: "${lifetimeRaw}", Parsed: ${lifetime}`);
+            }
+
+            const purity = cleanNumber(lot.hplcSub);
+            const synY = cleanNumber(lot.synYield);
+            const subY = cleanNumber(lot.subYield);
             const overallYield = parseFloat(((synY * subY) / 100).toFixed(2));
 
-            const metalSum = Object.values(lot.metalResults || {}).reduce((a, b) => a + (parseFloat(b)||0), 0);
-            const haloSum = (parseFloat(lot.halogen?.f)||0) + (parseFloat(lot.halogen?.cl)||0) + (parseFloat(lot.halogen?.br)||0);
+            const metalSum = Object.values(lot.metalResults || {}).reduce((a, b) => a + cleanNumber(b), 0);
+            const haloSum = HALOGEN_KEYS.reduce((acc, key) => acc + cleanNumber(lot.halogen?.[key]), 0);
 
             let totalImpuritySum = 0;
             crossLotPeaks.forEach(peak => {
-                if (peak.rrt >= 0.95 && peak.rrt <= 1.05) return; 
+                if (peak.rrt >= 0.95 && peak.rrt <= 1.05) return;
                 totalImpuritySum += (peak.contents[lot.id] || 0);
             });
 
             const dataPoint = {
                 id: lot.id, 
                 name: lot.name, 
-                lifetime, 
+                lifetime: isValid ? lifetime : 0, 
+                validLifetime: isValid, 
                 purity,
                 metal: metalSum, 
                 halogen: haloSum,
-                overallYield: overallYield,
+                overallYield,
                 totalImpurity: parseFloat(totalImpuritySum.toFixed(3))
             };
 
-            metalElements.forEach(el => dataPoint[`met_${el}`] = parseFloat(lot.metalResults?.[el] || 0));
+            metalElements.forEach(el => {
+                dataPoint[`met_${el}`] = cleanNumber(lot.metalResults?.[el]);
+            });
             
-            HALOGEN_KEYS.forEach(el => dataPoint[`halo_${el}`] = parseFloat(lot.halogen?.[el] || 0));
+            HALOGEN_KEYS.forEach(el => {
+                dataPoint[`halo_${el}`] = cleanNumber(lot.halogen?.[el]);
+            });
             
             crossLotPeaks.forEach(peak => {
                 if (peak.rrt < 0.95 || peak.rrt > 1.05) {
@@ -65,17 +86,38 @@ export const RegressionTab = ({ material, lots = [] }) => {
             });
 
             return dataPoint;
-        }).filter(d => d.lifetime > 0); 
+        });
+
+        const filtered = data.filter(d => d.validLifetime);
+        console.log(`Filtering Result: ${filtered.length} / ${data.length} lots are valid.`);
+        console.groupEnd();
+
+        return filtered;
+
     }, [lots, metalElements, crossLotPeaks]);
 
-    // 상관관계(R) 계산 및 Top 3 추천
+    useEffect(() => {
+        if (analysisData.length > 0) {
+            const firstItem = analysisData[0];
+            if (!(selectedDetail in firstItem)) {
+                if (category === 'MAIN') setSelectedDetail('purity');
+                else if (category === 'PEAK') {
+                    const peakKey = Object.keys(firstItem).find(k => k.startsWith('peak_'));
+                    setSelectedDetail(peakKey || 'purity');
+                }
+                else if (category === 'METAL') setSelectedDetail(`met_${metalElements[0]}`);
+                else if (category === 'HALOGEN') setSelectedDetail('halo_cl');
+            }
+        }
+    }, [analysisData, category, selectedDetail, metalElements]);
+
     const { correlations, top3Factors } = useMemo(() => {
         if (analysisData.length < 2) return { correlations: {}, top3Factors: [] };
         
         const calcR = (key) => {
             const n = analysisData.length;
             const x = analysisData.map(d => d[key] || 0);
-            const y = analysisData.map(d => d.lifetime);
+            const y = analysisData.map(d => d.lifetime); 
             
             const allSame = x.every(v => v === x[0]);
             if (allSame) return 0;
@@ -87,8 +129,10 @@ export const RegressionTab = ({ material, lots = [] }) => {
             const sumY2 = y.reduce((a, b) => a + b*b, 0);
             
             const numerator = (n * sumXY) - (sumX * sumY);
-            const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-            
+            const denominatorSq = (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY);
+            if (denominatorSq <= 0) return 0;
+
+            const denominator = Math.sqrt(denominatorSq);
             return denominator === 0 ? 0 : numerator / denominator;
         };
 
@@ -131,8 +175,8 @@ export const RegressionTab = ({ material, lots = [] }) => {
         return { correlations: results, top3Factors: sorted.slice(0, 3) };
     }, [analysisData, metalElements, crossLotPeaks]);
 
-    // 라벨 헬퍼
     const getFactorInfo = (key) => {
+        if (!key) return { label: 'Select Factor', unit: '' };
         if (key === 'purity') return { label: 'HPLC Purity', unit: '%' };
         if (key === 'totalImpurity') return { label: 'Total Impurity Sum', unit: '%' };
         if (key === 'metal') return { label: 'Total Metal', unit: 'ppm' };
@@ -155,13 +199,26 @@ export const RegressionTab = ({ material, lots = [] }) => {
         else if (newCat === 'PEAK') {
             const firstPeak = crossLotPeaks.find(p => p.rrt < 0.95 || p.rrt > 1.05);
             if(firstPeak) setSelectedDetail(`peak_${firstPeak.rrt.toFixed(2)}`);
+            else alert("No impurity peaks found in range (RRT < 0.95 or > 1.05)");
         }
     };
 
+    if (analysisData.length < 2) {
+        return (
+            <div className="flex h-full flex-col items-center justify-center text-slate-400 gap-4 p-8">
+                <Icon name="bar-chart-2" size={48} className="opacity-20"/>
+                <div className="text-center">
+                    <p className="font-bold text-lg text-slate-500">Not Enough Data</p>
+                    <p className="text-sm">Minimum 2 Lots with valid <span className="font-bold text-slate-600">Lifetime</span> data required.</p>
+                    <p className="text-xs mt-2 opacity-70">(Current Valid Lots: {analysisData.length} / Total: {lots.length})</p>
+                    <p className="text-xs mt-1 text-rose-400">Please check the console (F12) for details.</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        // [수정] overflow-y-auto와 custom-scrollbar를 추가하여 스크롤 문제 해결
         <div className="p-6 h-full flex flex-col space-y-6 overflow-y-auto custom-scrollbar">
-             {/* 상단 컨트롤 바 */}
              <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                     <Icon name="activity" className="text-purple-600"/> Regression Analysis
@@ -190,11 +247,10 @@ export const RegressionTab = ({ material, lots = [] }) => {
                 </div>
              </div>
 
-             {/* Top 3 추천 */}
              {top3Factors.length > 0 && (
                 <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-xl p-4 text-white shadow-lg animate-in flex-shrink-0">
                     <div className="flex items-center gap-2 mb-3 text-amber-400 font-bold uppercase text-xs tracking-wider"><Icon name="star" size={14} className="fill-current"/> Top 3 Critical Factors Affecting Lifetime</div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {top3Factors.map((factor, idx) => (
                             <div key={idx} onClick={() => { setCategory(factor.group); setSelectedDetail(factor.key); }} className="bg-white/10 rounded-lg p-3 hover:bg-white/20 transition cursor-pointer border border-white/10">
                                 <div className="flex justify-between items-start"><div className="text-xs text-slate-300 font-bold mb-1">#{idx+1} {factor.label}</div><div className={`text-[10px] px-1.5 rounded font-bold ${factor.r < 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>R = {factor.r.toFixed(3)}</div></div>
@@ -205,7 +261,6 @@ export const RegressionTab = ({ material, lots = [] }) => {
                 </div>
              )}
 
-             {/* 차트 및 요약 */}
              <div className="flex-1 grid grid-cols-12 gap-6 min-h-[400px]">
                  <div className="col-span-12 md:col-span-3 flex flex-col gap-6">
                     <Card title="Correlation Result" icon="trending-up" color="text-slate-700">

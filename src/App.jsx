@@ -1,5 +1,5 @@
 /**
- * OLED Matflow v1.17 - Added Project Structure Thumbnail & Ketcher Integration
+ * OLED Matflow v1.18 - Added Project & Lot Deletion (Fix: Regression Props & Clean Delete)
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from './services/api'; 
@@ -39,22 +39,18 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
 
     const activeMat = materials.find(m => m.id === activeId);
 
-    // [변경] 현재 활성화된 프로젝트의 생산 일정만 필터링
+    // 현재 활성화된 프로젝트의 생산 일정만 필터링
     const activeProjectEvents = useMemo(() => {
         if (!activeMat) return [];
-        // projectId가 없는 레거시 데이터 처리가 필요하다면 여기서 처리하거나, 
-        // 새 일정은 무조건 projectId를 가지게 됨.
         return productionEvents.filter(e => e.projectId === activeMat.id);
     }, [productionEvents, activeMat]);
 
-    // [변경] 프로젝트별 일정 업데이트 핸들러 (전체 목록에 병합)
+    // 프로젝트별 일정 업데이트 핸들러 (전체 목록에 병합)
     const handleUpdateProjectEvents = (updatedEventsForProject) => {
         if (!activeMat) return;
 
         setProductionEvents(prevGlobalEvents => {
-            // 1. 현재 프로젝트가 아닌 다른 프로젝트들의 일정은 유지
             const otherEvents = prevGlobalEvents.filter(e => e.projectId !== activeMat.id);
-            // 2. 현재 프로젝트의 수정된 일정을 합침
             return [...otherEvents, ...updatedEventsForProject];
         });
     };
@@ -90,7 +86,7 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
         try {
             await Promise.all([
                 api.materials.saveAll(materials),
-                api.production.saveAll(productionEvents), // 전체 이벤트를 저장
+                api.production.saveAll(productionEvents), 
                 api.inventory.saveGlobal(globalInventory) 
             ]);
             
@@ -164,6 +160,26 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
         setActiveId(newId);
     };
 
+    // [수정됨] 프로젝트 삭제 핸들러 (관련 Production Event도 함께 삭제)
+    const handleDeleteProject = (e, projectId) => {
+        e.stopPropagation(); 
+        if (isReadOnlyMode) return;
+        
+        if (window.confirm("정말 이 프로젝트를 삭제하시겠습니까?\n(관련된 생산 일정도 모두 삭제되며 복구할 수 없습니다)")) {
+            // 1. 프로젝트 삭제
+            const newMaterials = materials.filter(m => m.id !== projectId);
+            setMaterials(newMaterials);
+
+            // 2. 관련 생산 일정 삭제
+            setProductionEvents(prev => prev.filter(ev => ev.projectId !== projectId));
+            
+            // 3. 활성 ID 변경
+            if (activeId === projectId) {
+                setActiveId(newMaterials.length > 0 ? newMaterials[0].id : null);
+            }
+        }
+    };
+
     const userRole = ROLES[currentUser.roleId] || ROLES.GUEST;
     const isReadOnlyMode = !userRole.canEdit;
 
@@ -195,7 +211,7 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                     <div className="flex items-center gap-2 text-slate-800 font-black text-xl mb-1">
                         <Icon name="layers" size={24} className="text-brand-600"/> OLED<span className="text-brand-600"> Matflow</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.17 Cloud Edition</div>
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">v1.18 Cloud Edition</div>
                 </div>
                 
                 <div className="p-4 bg-slate-50 border-b border-slate-200">
@@ -249,10 +265,22 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                                             <div 
                                                 key={m.id} 
                                                 onClick={()=>{setActiveId(m.id); setShowAdminPanel(false)}} 
-                                                className={`flex justify-between items-center p-3 rounded-lg cursor-pointer transition border ${activeId===m.id && !showAdminPanel ? 'bg-white border-brand-200 shadow-md ring-1 ring-brand-100' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}
+                                                className={`group flex justify-between items-center p-3 rounded-lg cursor-pointer transition border ${activeId===m.id && !showAdminPanel ? 'bg-white border-brand-200 shadow-md ring-1 ring-brand-100' : 'border-transparent text-slate-500 hover:bg-slate-50'}`}
                                             >
                                                 <div className="overflow-hidden w-full">
-                                                    <div className={`font-bold truncate ${activeId===m.id && !showAdminPanel ? 'text-slate-800' : 'text-slate-600'}`}>{m.name}</div>
+                                                    <div className="flex justify-between items-start">
+                                                        <div className={`font-bold truncate ${activeId===m.id && !showAdminPanel ? 'text-slate-800' : 'text-slate-600'}`}>{m.name}</div>
+                                                        {/* 프로젝트 삭제 버튼 */}
+                                                        {!isReadOnlyMode && (
+                                                            <button 
+                                                                onClick={(e) => handleDeleteProject(e, m.id)}
+                                                                className="hidden group-hover:block text-slate-300 hover:text-rose-500 transition-colors p-0.5"
+                                                                title="Delete Project"
+                                                            >
+                                                                <Icon name="trash-2" size={14} />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                     <div className={`text-[9px] inline-block px-1.5 py-0.5 rounded-full mt-1 border ${stageInfo.color} bg-white`}>
                                                         {stageInfo.name}
                                                     </div>
@@ -372,7 +400,6 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                                 {activeTab === 'stock' && <StockTab material={activeMat} updateMaterial={updateActiveMat} readOnly={isReadOnlyMode} />}
                                 {activeTab === 'master' && <MasterStockTab globalInventory={globalInventory} updateGlobalInventory={updateGlobalInventory} readOnly={isReadOnlyMode} />}
                                 
-                                {/* [변경] Production 탭에 필터링된 이벤트, 업데이트 핸들러, 프로젝트 ID 전달 */}
                                 {activeTab === 'production' && (
                                     <ProductionCalendarTab 
                                         events={activeProjectEvents} 
@@ -382,7 +409,8 @@ const MainApp = ({ currentUser, onLogout, globalInventory, updateGlobalInventory
                                     />
                                 )}
                                 
-                                {activeTab === 'regression' && <RegressionTab material={activeMat} />}
+                                {/* [수정됨] RegressionTab에 lots props 전달 필수 */}
+                                {activeTab === 'regression' && <RegressionTab material={activeMat} lots={activeMat.lots} />}
                             </div>
                         </main>
                     </>

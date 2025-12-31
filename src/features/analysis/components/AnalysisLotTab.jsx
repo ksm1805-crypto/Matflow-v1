@@ -144,34 +144,39 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
         }
     };
 
-    // [수정됨] 기존 Lot을 복제하여 새로운 Lot 추가
+    // 기존 Lot을 복제하여 새로운 Lot 추가
     const addLot = () => { 
         if (readOnly) return;
-
-        // 1. 새로운 이름 생성 (날짜 + 번호)
         const todayStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
         const nextNum = material.lots.length + 1;
         const newName = `LOT-${todayStr}-${nextNum}`;
 
         let newLot;
-
         if (activeLot) {
-            // 2. [Clone] 현재 활성화된 Lot을 깊은 복사 (Deep Copy)
-            // JSON.parse(JSON.stringify())를 사용하여 중첩된 객체(costData, steps, grids 등)까지 모두 복사
             newLot = JSON.parse(JSON.stringify(activeLot));
-            
-            // 3. 고유 ID와 이름은 새로 부여
             newLot.id = Date.now();
             newLot.name = newName;
         } else {
-            // 4. [Fallback] 만약 복사할 Lot이 없다면 초기화된 새 Lot 생성
             const baseData = { name: newName };
             newLot = sanitizeLot(baseData);
         }
-
-        // 5. 상태 업데이트
         updateMaterial({ ...material, lots: [...material.lots, newLot] }); 
         setActiveLotId(newLot.id); 
+    };
+
+    // [추가됨] Lot 삭제 핸들러
+    const handleDeleteLot = (e, lotId) => {
+        e.stopPropagation(); // 부모 클릭 방지
+        if (readOnly) return;
+        if (!window.confirm("정말 이 Lot을 삭제하시겠습니까?")) return;
+
+        const newLots = material.lots.filter(l => l.id !== lotId);
+        updateMaterial({ ...material, lots: newLots });
+
+        // 삭제된 Lot이 선택된 상태였다면 첫 번째 Lot으로 이동 (없으면 null)
+        if (activeLotId === lotId) {
+            setActiveLotId(newLots.length > 0 ? newLots[0].id : null);
+        }
     };
 
     const getCurrentGrid = () => {
@@ -224,8 +229,22 @@ export const AnalysisLotTab = ({ material, updateMaterial, readOnly }) => {
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {material.lots.map(l => (
-                        <div key={l.id} onClick={() => setActiveLotId(l.id)} className={`p-3 rounded-lg text-sm cursor-pointer flex justify-between ${activeLotId === l.id ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200' : 'text-slate-600 hover:bg-slate-100'}`}>
-                            {l.name}
+                        <div 
+                            key={l.id} 
+                            onClick={() => setActiveLotId(l.id)} 
+                            className={`group p-3 rounded-lg text-sm cursor-pointer flex justify-between items-center ${activeLotId === l.id ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200' : 'text-slate-600 hover:bg-slate-100'}`}
+                        >
+                            <span className="truncate">{l.name}</span>
+                            {/* [추가됨] Lot 삭제 버튼 (마우스 호버시 표시) */}
+                            {!readOnly && (
+                                <button 
+                                    onClick={(e) => handleDeleteLot(e, l.id)}
+                                    className="hidden group-hover:block text-slate-400 hover:text-rose-500 transition p-0.5"
+                                    title="Delete Lot"
+                                >
+                                    <Icon name="trash-2" size={14} />
+                                </button>
+                            )}
                         </div>
                     ))}
                 </div>
