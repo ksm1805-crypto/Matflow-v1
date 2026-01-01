@@ -6,7 +6,7 @@ import { AnalysisLotTab } from './components/AnalysisLotTab'; // 기존 Analysis
 import { ThermalTab } from './components/ThermalTab';
 import { ImpurityTab } from './components/ImpurityTab';
 
-export const UnifiedAnalysisTab = ({ material, updateMaterial, readOnly }) => {
+export const UnifiedAnalysisTab = ({ material, updateMaterial, readOnly, lang }) => {
     const [subTab, setSubTab] = useState('spec');
 
     const getTabClass = (id) => `px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 border ${subTab === id ? 'bg-slate-800 text-white border-slate-800 shadow-md' : 'bg-white border-slate-200 text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`;
@@ -24,11 +24,32 @@ export const UnifiedAnalysisTab = ({ material, updateMaterial, readOnly }) => {
             </div>
 
             <div className="flex-1 overflow-hidden relative">
-                {subTab === 'spec' && <div className="h-full overflow-y-auto custom-scrollbar"><SpecificationTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} /></div>}
-                {subTab === 'method' && <div className="h-full"><MethodTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} /></div>}
-                {subTab === 'lot' && <div className="h-full"><AnalysisLotTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} /></div>}
-                {subTab === 'thermal' && <div className="h-full overflow-y-auto custom-scrollbar"><ThermalTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} /></div>}
-                {subTab === 'impurity' && <div className="h-full overflow-y-auto custom-scrollbar"><ImpurityTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} /></div>}
+                {subTab === 'spec' && (
+                    <div className="h-full overflow-y-auto custom-scrollbar">
+                        <SpecificationTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} lang={lang} />
+                    </div>
+                )}
+                {subTab === 'method' && (
+                    <div className="h-full">
+                        <MethodTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} lang={lang} />
+                    </div>
+                )}
+                {subTab === 'lot' && (
+                    <div className="h-full">
+                        {/* 여기에 lang={lang}이 추가되어야 AnalysisLotTab이 언어를 전달받습니다 */}
+                        <AnalysisLotTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} lang={lang} />
+                    </div>
+                )}
+                {subTab === 'thermal' && (
+                    <div className="h-full overflow-y-auto custom-scrollbar">
+                        <ThermalTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} lang={lang} />
+                    </div>
+                )}
+                {subTab === 'impurity' && (
+                    <div className="h-full overflow-y-auto custom-scrollbar">
+                        <ImpurityTab material={material} updateMaterial={updateMaterial} readOnly={readOnly} lang={lang} />
+                    </div>
+                )}
             </div>
         </div>
     );

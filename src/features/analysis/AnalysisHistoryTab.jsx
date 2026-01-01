@@ -1,12 +1,188 @@
 import React, { useState, useMemo } from 'react';
 import { Card } from '../../components/ui/Card';
 import { Icon } from '../../components/ui/Icon';
-import { SimpleLineChart } from '../../components/charts/SimpleLineChart';
-import { fmtK } from '../../utils/format';
+// [수정] YAxis 추가
+import { AreaChart, Area, ResponsiveContainer, Tooltip, Defs, LinearGradient, Stop, CartesianGrid, YAxis } from 'recharts';
+import { fmtK, fmtN } from '../../utils/format';
 import { processCrossLotImpurityData } from '../../utils/math';
 import { STANDARD_METALS } from '../../constants';
 
-export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
+// --- 1. 다국어 사전 정의 (KO/EN/CN) ---
+const TRANSLATIONS = {
+    ko: {
+        summary_title: "Lot 비교 이력",
+        col_lot: "Lot 번호",
+        col_period: "기간",
+        col_syn_yield: "합성 %",
+        col_sub_yield: "승화 %",
+        col_site: "/ 장소",
+        col_purity: "순도",
+        col_drate: "중수소 치환율",
+        col_mix: "혼합",
+        col_output: "생산량",
+        col_cost: "단가",
+        col_halogen: "할로겐",
+        col_metal: "금속",
+        col_eff: "효율",
+        col_life: "수명",
+        status_pass: "합격",
+        status_fail: "불합격",
+        val_mix: "혼합",
+        chart_syn: "합성 수율",
+        chart_sub: "승화 수율",
+        chart_purity: "합성 순도",
+        chart_sub_purity: "승화 순도",
+        chart_cost: "제조 단가",
+        chart_life: "소자 수명",
+        impurity_title: "불순물 비교 (행: Lot / 열: RRT)",
+        btn_final_mix: "최종 혼합물",
+        label_ref_lots: "기준 Lot:",
+        selected: "선택됨",
+        select_ref_title: "기준 Lot 선택",
+        btn_close: "닫기",
+        no_peaks: "불순물 피크가 없습니다. 분석 탭에서 데이터를 입력해주세요."
+    },
+    en: {
+        summary_title: "Lot Comparison History",
+        col_lot: "Lot No.",
+        col_period: "Period",
+        col_syn_yield: "Syn %",
+        col_sub_yield: "Sub %",
+        col_site: "/ Site",
+        col_purity: "Purity",
+        col_drate: "Deuteration Rate",
+        col_mix: "Mix",
+        col_output: "Output",
+        col_cost: "Cost",
+        col_halogen: "Halogen",
+        col_metal: "Metal",
+        col_eff: "Eff",
+        col_life: "Life",
+        status_pass: "Pass",
+        status_fail: "Fail",
+        val_mix: "Mix",
+        chart_syn: "Syn Yield",
+        chart_sub: "Sub Yield",
+        chart_purity: "Syn Purity",
+        chart_sub_purity: "Sub Purity",
+        chart_cost: "Unit Cost",
+        chart_life: "Device Life",
+        impurity_title: "Impurity Comparison (Row: Lot / Col: RRT)",
+        btn_final_mix: "Final Mix",
+        label_ref_lots: "Ref Lots:",
+        selected: "Selected",
+        select_ref_title: "Select References",
+        btn_close: "Close",
+        no_peaks: "No impurity peaks found. Please add peak data in Analysis Tab."
+    },
+    zh: {
+        summary_title: "批次比较记录",
+        col_lot: "批次号",
+        col_period: "期间",
+        col_syn_yield: "合成 %",
+        col_sub_yield: "升华 %",
+        col_site: "/ 地点",
+        col_purity: "纯度",
+        col_drate: "氘代率",
+        col_mix: "混合",
+        col_output: "产量",
+        col_cost: "成本",
+        col_halogen: "卤素",
+        col_metal: "金属",
+        col_eff: "效率",
+        col_life: "寿命",
+        status_pass: "合格",
+        status_fail: "不合格",
+        val_mix: "混合",
+        chart_syn: "合成收率",
+        chart_sub: "升华收率",
+        chart_purity: "合成纯度",
+        chart_sub_purity: "升华纯度",
+        chart_cost: "单价",
+        chart_life: "器件寿命",
+        impurity_title: "杂质比较 (行: 批次 / 列: RRT)",
+        btn_final_mix: "最终混合物",
+        label_ref_lots: "参考批次:",
+        selected: "已选",
+        select_ref_title: "选择参考批次",
+        btn_close: "关闭",
+        no_peaks: "未找到杂质峰。请在分析选项卡中添加数据。"
+    }
+};
+
+// [Modern Chart Component] Refined Style with YAxis Control
+const ModernChart = ({ data, dataKey, color, label, unit = '', formatVal, domain }) => {
+    // 마지막 데이터 값 추출 (KPI 표시용)
+    const lastValue = data.length > 0 ? data[data.length - 1][dataKey] : 0;
+    const formattedLast = formatVal ? formatVal(lastValue) : lastValue;
+
+    return (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-5 h-56 flex flex-col relative overflow-hidden transition hover:shadow-md group">
+            {/* Header info */}
+            <div className="flex justify-between items-start z-10 mb-2">
+                <div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</h4>
+                    <div className="text-2xl font-black text-slate-800 tracking-tight flex items-baseline gap-1">
+                        {formattedLast}
+                        {!formatVal && <span className="text-sm font-normal text-slate-400">{unit}</span>}
+                    </div>
+                </div>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-slate-50 text-${color}-500 group-hover:bg-${color}-50 transition`}>
+                    <Icon name="trending-up" size={16} style={{ color }} />
+                </div>
+            </div>
+
+            {/* Graph */}
+            <div className="flex-1 w-full -ml-2 -mb-2">
+                <ResponsiveContainer width="106%" height="100%">
+                    <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                        <defs>
+                            <linearGradient id={`grad-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={color} stopOpacity={0.2} />
+                                <stop offset="95%" stopColor={color} stopOpacity={0.0} />
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        
+                        {/* [수정] YAxis 추가 및 Domain 설정 (순도 그래프는 99~100으로 설정됨) */}
+                        <YAxis domain={domain || [0, 'auto']} hide />
+                        
+                        <Tooltip 
+                            contentStyle={{ 
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 4px 15px -3px rgba(0, 0, 0, 0.1)',
+                                padding: '8px 12px',
+                                fontSize: '12px',
+                                fontWeight: 'bold',
+                                color: '#334155'
+                            }}
+                            itemStyle={{ color: color }}
+                            formatter={(value) => [formatVal ? formatVal(value) : value, label]}
+                            labelStyle={{ display: 'none' }}
+                            cursor={{ stroke: '#cbd5e1', strokeDasharray: '3 3' }}
+                        />
+                        <Area 
+                            type="monotone" 
+                            dataKey={dataKey} 
+                            stroke={color} 
+                            strokeWidth={3} 
+                            fill={`url(#grad-${dataKey})`} 
+                            animationDuration={1500}
+                            dot={{ r: 3, stroke: color, strokeWidth: 2, fill: '#fff' }}
+                            activeDot={{ r: 6, stroke: color, strokeWidth: 2, fill: '#fff' }}
+                        />
+                    </AreaChart>
+                </ResponsiveContainer>
+            </div>
+        </div>
+    );
+};
+
+export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly, lang = 'ko' }) => { 
+    const t = (key) => TRANSLATIONS[lang][key] || key; 
+
     const [refLotIds, setRefLotIds] = useState(material.lots.length > 0 ? [material.lots[0].id] : []);
     const [isRefSelectorOpen, setIsRefSelectorOpen] = useState(false);
     
@@ -28,7 +204,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
 
     const allRRTs = useMemo(() => crossLotPeaks.map(p => p.rrt), [crossLotPeaks]);
     
-    // ✅ [핵심 수정] 데이터 업데이트 함수
     const updateLot = (id, field, val) => { 
         if(!readOnly) {
             updateMaterial({ 
@@ -54,9 +229,9 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
     };
 
     const renderMixInfo = (lot) => { if (!lot.isMix) return '-'; return <div className="flex flex-col items-center"><span className="text-[10px] text-slate-500 font-bold">{lot.comp1Label}/{lot.comp2Label}</span><span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs font-bold">{lot.pRatio}:{lot.nRatio}</span></div>; };
-    const renderDRate = (lot) => { if (lot.isMix) return <span className="text-xs text-slate-500">Mix</span>; return <span className="font-mono text-slate-700">{lot.dRate ? `${lot.dRate}%` : '-'}</span>; };
+    const renderDRate = (lot) => { if (lot.isMix) return <span className="text-xs text-slate-500">{t('val_mix')}</span>; return <span className="font-mono text-slate-700">{lot.dRate ? `${lot.dRate}%` : '-'}</span>; };
     const renderHalogen = (lot) => { const { f, cl, br } = lot.halogen || {}; if (!f && !cl && !br) return '-'; return <div className="text-[10px] font-mono flex flex-col gap-0.5"><span className="text-slate-600">F: {f||0}</span><span className="text-slate-600">Cl: {cl||0}</span></div>; };
-    const renderMetal = (lot) => { const spec = material.specification?.metal || {}; const metals = material.specification?.metalElements || STANDARD_METALS; let isFail = false; metals.forEach((el) => { if ((parseFloat(lot.metalResults?.[el]) || 0) > parseFloat(spec[el] || 9999)) isFail = true; }); return isFail ? <span className="text-[10px] font-bold text-rose-500 bg-rose-50 px-2 py-1 rounded">Fail</span> : <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded">Pass</span>; };
+    const renderMetal = (lot) => { const spec = material.specification?.metal || {}; const metals = material.specification?.metalElements || STANDARD_METALS; let isFail = false; metals.forEach((el) => { if ((parseFloat(lot.metalResults?.[el]) || 0) > parseFloat(spec[el] || 9999)) isFail = true; }); return isFail ? <span className="text-[10px] font-bold text-rose-500 bg-rose-50 px-2 py-1 rounded">{t('status_fail')}</span> : <span className="text-[10px] font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded">{t('status_pass')}</span>; };
 
     const firstMixLot = material.lots.find(l => l.isMix);
     const labelP = firstMixLot?.comp1Label || 'Comp 1';
@@ -68,27 +243,22 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
         <div className="h-full overflow-y-auto custom-scrollbar bg-slate-50 p-6 space-y-6">
             
             {/* 1. Summary Table */}
-            <Card title="Lot Comparison History" icon="layers">
+            <Card title={t('summary_title')} icon="layers">
                 <div className="overflow-x-auto border border-slate-200 rounded-lg bg-white custom-scrollbar">
                     <table className="w-full text-sm text-left whitespace-nowrap">
                          <thead className="bg-slate-100 text-slate-600 uppercase text-xs font-semibold">
                             <tr>
-                                <th className="p-3 sticky left-0 z-20 bg-slate-100 border-r border-slate-200 shadow-sm">Lot No.</th>
-                                <th className="p-3 w-32">Period</th>
-                                
-                                {/* Syn Yield + Site 통합 헤더 */}
+                                <th className="p-3 sticky left-0 z-20 bg-slate-100 border-r border-slate-200 shadow-sm">{t('col_lot')}</th>
+                                <th className="p-3 w-32">{t('col_period')}</th>
                                 <th className="p-3 text-blue-700 bg-blue-50/50 text-center">
-                                    Syn % <span className="text-[10px] text-slate-400 font-normal">/ Site</span>
+                                    {t('col_syn_yield')} <span className="text-[10px] text-slate-400 font-normal">{t('col_site')}</span>
                                 </th> 
-                                
-                                {/* Sub Yield + Site 통합 헤더 */}
                                 <th className="p-3 text-amber-700 bg-amber-50/50 text-center">
-                                    Sub % <span className="text-[10px] text-slate-400 font-normal">/ Site</span>
+                                    {t('col_sub_yield')} <span className="text-[10px] text-slate-400 font-normal">{t('col_site')}</span>
                                 </th> 
-
-                                <th className="p-3 text-purple-600">Purity</th><th className="p-3 text-amber-600">D-Rate</th>
-                                <th className="p-3">Mix</th><th className="p-3 text-blue-600">Output</th><th className="p-3">Cost</th>
-                                <th className="p-3">Halogen</th><th className="p-3 text-center">Metal</th><th className="p-3 text-emerald-600">Eff</th><th className="p-3 text-blue-600">Life</th>
+                                <th className="p-3 text-purple-600">{t('col_purity')}</th><th className="p-3 text-amber-600">{t('col_drate')}</th>
+                                <th className="p-3">{t('col_mix')}</th><th className="p-3 text-blue-600">{t('col_output')}</th><th className="p-3">{t('col_cost')}</th>
+                                <th className="p-3">{t('col_halogen')}</th><th className="p-3 text-center">{t('col_metal')}</th><th className="p-3 text-emerald-600">{t('col_eff')}</th><th className="p-3 text-blue-600">{t('col_life')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 bg-white">
@@ -101,34 +271,31 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                                 <tr key={lot.id} className="hover:bg-slate-50 transition">
                                     <td className="p-3 font-bold text-slate-800 sticky left-0 bg-white z-10 border-r border-slate-100 shadow-sm">{lot.name}</td>
                                     
-                                    {/* 날짜 입력 필드 */}
                                     <td className="p-3"><div className="flex flex-col gap-1">
                                         <input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateStart || ''} onChange={e=>updateLot(lot.id, 'synDateStart', e.target.value)}/>
                                         <input type="date" disabled={readOnly} className="bg-transparent text-[10px] text-slate-500 outline-none w-full" value={lot.synDateEnd || ''} onChange={e=>updateLot(lot.id, 'synDateEnd', e.target.value)}/>
                                     </div></td>
                                     
-                                    {/* [수정됨] Syn Yield + Site 통합 셀 */}
                                     <td className={`p-3 text-center align-middle transition-colors ${isSyn ? 'bg-blue-50/50' : 'opacity-60'}`}>
                                         <div className="flex flex-col items-center gap-1">
                                             {renderCompValue(lot, 'synYield', '%')}
                                             <input 
                                                 disabled={readOnly} 
                                                 className="bg-transparent w-full text-center outline-none text-[10px] text-slate-500 font-medium placeholder:text-slate-300 border-t border-slate-200 pt-1 focus:border-blue-300" 
-                                                value={lot.synSite || ''} // ✅ 여기서 || '' 처리를 해줘야 입력이 잘 됩니다
+                                                value={lot.synSite || ''}
                                                 onChange={e=>updateLot(lot.id, 'synSite', e.target.value)} 
                                                 placeholder="Site"
                                             />
                                         </div>
                                     </td>
                                     
-                                    {/* [수정됨] Sub Yield + Site 통합 셀 */}
                                     <td className={`p-3 text-center align-middle transition-colors ${isSub ? 'bg-amber-50/50' : 'opacity-60'}`}>
                                         <div className="flex flex-col items-center gap-1">
                                             {renderCompValue(lot, 'subYield', '%')}
                                             <input 
                                                 disabled={readOnly} 
                                                 className="bg-transparent w-full text-center outline-none text-[10px] text-slate-500 font-medium placeholder:text-slate-300 border-t border-slate-200 pt-1 focus:border-amber-300" 
-                                                value={lot.subSite || ''} // ✅ 여기서 || '' 처리를 해줘야 입력이 잘 됩니다
+                                                value={lot.subSite || ''}
                                                 onChange={e=>updateLot(lot.id, 'subSite', e.target.value)} 
                                                 placeholder="Site"
                                             />
@@ -137,7 +304,6 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
 
                                     <td className="p-3 text-center">{renderCompValue(lot, 'hplcSub', '%', 'text-purple-600')}</td>
                                     <td className="p-3 text-center">{renderCompValue(lot, 'dRate', '%', 'text-amber-600')}</td>
-                                    
                                     <td className="p-3 text-center">{renderMixInfo(lot)}</td>
                                     <td className="p-3 font-mono font-bold text-blue-600">{lot.actualOutput}g</td>
                                     <td className="p-3 font-mono text-slate-500">₩{fmtK(lot.unitCost)}</td>
@@ -150,21 +316,22 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                 </div>
             </Card>
             
-            {/* 2. Charts Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="synYield" color="#3b82f6" label="Syn Yield (%)" formatVal={v=>`${v}%`}/></div>
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="subYield" color="#f59e0b" label="Sub Yield (%)" formatVal={v=>`${v}%`}/></div>
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="hplcSub" color="#a855f7" label="Purity (%)" formatVal={v=>`${v}%`}/></div>
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="hplcSub" color="#ec4899" label="Sub Purity (%)" formatVal={v=>`${v}%`}/></div>
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="unitCost" color="#10b981" label="Unit Cost" formatVal={v=>`₩${fmtK(v)}`}/></div>
-                 <div className="h-48"><SimpleLineChart data={material.lots} dataKey="lifetime" color="#0ea5e9" label="Device Life (%)" formatVal={v=>`${v}%`}/></div>
+            {/* 2. Charts Grid (Modernized) */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                 <ModernChart data={material.lots} dataKey="synYield" color="#3b82f6" label={t('chart_syn')} formatVal={v=>`${v}%`}/>
+                 <ModernChart data={material.lots} dataKey="subYield" color="#f59e0b" label={t('chart_sub')} formatVal={v=>`${v}%`}/>
+                 {/* [수정] dataKey를 hplcSyn으로 수정하고, 순도 관련 차트에 domain={[99, 100]} 적용 */}
+                 <ModernChart data={material.lots} dataKey="hplcSyn" color="#a855f7" label={t('chart_purity')} formatVal={v=>`${v}%`} domain={[99, 100]}/>
+                 <ModernChart data={material.lots} dataKey="hplcSub" color="#ec4899" label={t('chart_sub_purity')} formatVal={v=>`${v}%`} domain={[99, 100]}/>
+                 <ModernChart data={material.lots} dataKey="unitCost" color="#10b981" label={t('chart_cost')} formatVal={v=>`₩${fmtK(v)}`}/>
+                 <ModernChart data={material.lots} dataKey="lifetime" color="#0ea5e9" label={t('chart_life')} formatVal={v=>`${v}%`}/>
             </div>
             
             {/* 3. Impurity Comparison Table */}
-            <Card title="Impurity Comparison (Row: Lot / Col: RRT)" icon="git-branch">
+            <Card title={t('impurity_title')} icon="git-branch">
                  <div className="flex justify-between items-center mb-2">
                     <div className="flex gap-1">
-                        <button onClick={()=>setImpurityTab('main')} className={`px-3 py-1 text-xs font-bold rounded-lg border transition ${impurityTab==='main'?'bg-slate-800 text-white border-slate-800':'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Final Mix</button>
+                        <button onClick={()=>setImpurityTab('main')} className={`px-3 py-1 text-xs font-bold rounded-lg border transition ${impurityTab==='main'?'bg-slate-800 text-white border-slate-800':'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{t('btn_final_mix')}</button>
                         {hasMix && (
                             <>
                                 <button onClick={()=>setImpurityTab('p')} className={`px-3 py-1 text-xs font-bold rounded-lg border transition ${impurityTab==='p'?'bg-blue-600 text-white border-blue-600':'bg-white text-slate-500 border-slate-200 hover:bg-blue-50'}`}>{labelP}</button>
@@ -176,13 +343,13 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
 
                     <div className="relative">
                         <div className="flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-200 transition select-none" onClick={() => setIsRefSelectorOpen(!isRefSelectorOpen)}>
-                            <span className="text-xs text-slate-500 font-bold">Ref Lots:</span><span className="text-xs text-brand-600 font-bold">{refLotIds.length} Selected</span><Icon name="chevron-down" size={12}/>
+                            <span className="text-xs text-slate-500 font-bold">{t('label_ref_lots')}</span><span className="text-xs text-brand-600 font-bold">{refLotIds.length} {t('selected')}</span><Icon name="chevron-down" size={12}/>
                         </div>
                         {isRefSelectorOpen && (
                             <div className="absolute top-full right-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 animate-in flex flex-col gap-1">
-                                <div className="text-[10px] font-bold text-slate-400 px-2 pb-1 border-b border-slate-100 mb-1">Select References</div>
+                                <div className="text-[10px] font-bold text-slate-400 px-2 pb-1 border-b border-slate-100 mb-1">{t('select_ref_title')}</div>
                                 {material.lots.map(l => (<div key={l.id} onClick={(e) => { e.stopPropagation(); toggleRef(l.id); }} className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition ${refLotIds.includes(l.id) ? 'bg-brand-50' : 'hover:bg-slate-50'}`}><div className={`w-4 h-4 rounded border flex items-center justify-center ${refLotIds.includes(l.id) ? 'bg-brand-600 border-brand-600' : 'border-slate-300 bg-white'}`}>{refLotIds.includes(l.id) && <Icon name="check" size={10} className="text-white"/>}</div><span className={`text-xs font-medium truncate ${refLotIds.includes(l.id) ? 'text-brand-700' : 'text-slate-600'}`}>{l.name}</span></div>))}
-                                <div className="pt-2 border-t border-slate-100 mt-1"><button onClick={(e)=>{e.stopPropagation(); setIsRefSelectorOpen(false)}} className="w-full text-center text-xs font-bold text-slate-500 hover:text-slate-800 py-1">Close</button></div>
+                                <div className="pt-2 border-t border-slate-100 mt-1"><button onClick={(e)=>{e.stopPropagation(); setIsRefSelectorOpen(false)}} className="w-full text-center text-xs font-bold text-slate-500 hover:text-slate-800 py-1">{t('btn_close')}</button></div>
                             </div>
                         )}
                         {isRefSelectorOpen && <div className="fixed inset-0 z-40" onClick={() => setIsRefSelectorOpen(false)}></div>}
@@ -215,7 +382,7 @@ export const AnalysisHistoryTab = ({ material, updateMaterial, readOnly }) => {
                                     </tr>
                                 );
                             })}
-                            {allRRTs.length === 0 && <tr><td colSpan={2} className="p-6 text-center text-slate-400 italic">No impurity peaks found. Please add peak data in Analysis Tab.</td></tr>}
+                            {allRRTs.length === 0 && <tr><td colSpan={2} className="p-6 text-center text-slate-400 italic">{t('no_peaks')}</td></tr>}
                         </tbody>
                     </table>
                 </div>

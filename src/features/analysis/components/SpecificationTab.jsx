@@ -1,7 +1,82 @@
 import React, { useState } from 'react';
 import { Card } from '../../../components/ui/Card';
 
-export const SpecificationTab = ({ material, updateMaterial, readOnly }) => {
+// --- 1. 다국어 사전 정의 (KO/EN/CN) ---
+const TRANSLATIONS = {
+    ko: {
+        purity_title: "순도 규격",
+        min_pct: "최소 %",
+        
+        halogen_title: "할로겐 규격 (ppm)",
+        
+        device_title: "소자 규격",
+        eff: "효율",
+        life: "수명",
+        min: "최소",
+        max: "최대",
+        
+        thermal_title: "열특성 (DSC)",
+        ref: "기준값",
+        range_pct: "±%",
+        
+        metal_title: "금속 규격 (ppm)",
+        ph_metal: "예: Zn",
+        add_type: "원소 추가",
+        
+        alert_exists: "이미 존재하는 원소입니다.",
+        confirm_delete: "삭제하시겠습니까?"
+    },
+    en: {
+        purity_title: "Purity Spec",
+        min_pct: "Min %",
+        
+        halogen_title: "Halogen Spec (ppm)",
+        
+        device_title: "Device Spec",
+        eff: "Eff",
+        life: "Life",
+        min: "Min",
+        max: "Max",
+        
+        thermal_title: "Thermal (DSC)",
+        ref: "Ref",
+        range_pct: "±%",
+        
+        metal_title: "Metal Spec (ppm)",
+        ph_metal: "e.g. Zn",
+        add_type: "Add Type",
+        
+        alert_exists: "Already exists",
+        confirm_delete: "Delete"
+    },
+    zh: {
+        purity_title: "纯度规格",
+        min_pct: "最小值 %",
+        
+        halogen_title: "卤素规格 (ppm)",
+        
+        device_title: "器件规格",
+        eff: "效率",
+        life: "寿命",
+        min: "最小",
+        max: "最大",
+        
+        thermal_title: "热性能 (DSC)",
+        ref: "参考值",
+        range_pct: "±%",
+        
+        metal_title: "金属规格 (ppm)",
+        ph_metal: "例如: Zn",
+        add_type: "添加元素",
+        
+        alert_exists: "该元素已存在",
+        confirm_delete: "确定删除"
+    }
+};
+
+export const SpecificationTab = ({ material, updateMaterial, readOnly, lang = 'ko' }) => { // lang 기본값 'ko'
+    const t = (key) => TRANSLATIONS[lang][key] || key; // 번역 헬퍼
+
     const [newMetal, setNewMetal] = useState('');
     const spec = material.specification;
     const updateSpec = (field, val) => updateMaterial({ ...material, specification: { ...spec, [field]: val } });
@@ -9,33 +84,34 @@ export const SpecificationTab = ({ material, updateMaterial, readOnly }) => {
     const addMetal = () => {
         if (!newMetal.trim()) return;
         const finalMetal = newMetal.trim().charAt(0).toUpperCase() + newMetal.trim().slice(1).toLowerCase();
-        if (spec.metalElements.includes(finalMetal)) return alert("Already exists");
+        if (spec.metalElements.includes(finalMetal)) return alert(t('alert_exists'));
         updateMaterial({...material, specification: {...spec, metalElements: [...spec.metalElements, finalMetal]}});
         setNewMetal('');
     };
 
     const removeMetal = (el) => {
-        if (!window.confirm(`Delete ${el}?`)) return;
+        // [수정] 다국어 메시지 적용
+        if (!window.confirm(`${t('confirm_delete')} ${el}?`)) return;
         updateMaterial({...material, specification: {...spec, metalElements: spec.metalElements.filter(x => x !== el)}});
     };
 
     return (
         <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card title="Purity Spec" icon="flask-conical" color="text-brand-600">
-                <div className="bg-slate-50 p-3 rounded flex justify-between items-center border border-slate-200"><span className="text-sm text-slate-500">Min %</span><input disabled={readOnly} className="bg-transparent text-right font-bold text-xl w-24 outline-none text-brand-600" value={spec.subPurityMin} onChange={e=>updateSpec('subPurityMin', e.target.value)} placeholder="99.9"/></div>
+            <Card title={t('purity_title')} icon="flask-conical" color="text-brand-600">
+                <div className="bg-slate-50 p-3 rounded flex justify-between items-center border border-slate-200"><span className="text-sm text-slate-500">{t('min_pct')}</span><input disabled={readOnly} className="bg-transparent text-right font-bold text-xl w-24 outline-none text-brand-600" value={spec.subPurityMin} onChange={e=>updateSpec('subPurityMin', e.target.value)} placeholder="99.9"/></div>
             </Card>
-            <Card title="Halogen Spec (ppm)" icon="flame" color="text-rose-600">
+            <Card title={t('halogen_title')} icon="flame" color="text-rose-600">
                 <div className="grid grid-cols-3 gap-2">{['f','cl','br'].map(el=><div key={el} className="bg-slate-50 p-2 rounded text-center border border-slate-200"><span className="text-xs uppercase text-slate-400">{el}</span><input disabled={readOnly} className="w-full bg-transparent text-center font-bold text-slate-700 outline-none" value={spec.halogen[el]} onChange={e=>updateMaterial({...material, specification:{...spec, halogen:{...spec.halogen, [el]:e.target.value}}})}/></div>)}</div>
             </Card>
-            <Card title="Device Spec" icon="zap" color="text-emerald-600">
-                <div className="space-y-2">{['ivl','life'].map(k=><div key={k} className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-200"><span className="text-xs uppercase text-slate-500">{k === 'ivl' ? 'Eff' : 'Life'}</span><div className="flex gap-2 items-center"><input disabled={readOnly} className="w-14 bg-white border border-slate-300 rounded px-2 text-center text-xs outline-none text-slate-700" placeholder="Min" value={spec[k]?.min || ''} onChange={e=>updateMaterial({...material, specification:{...spec, [k]:{...spec[k], min:e.target.value}}})}/><span className="text-slate-400 text-xs">~</span><input disabled={readOnly} className="w-14 bg-white border border-slate-300 rounded px-2 text-center text-xs outline-none text-slate-700" placeholder="Max" value={spec[k]?.max || ''} onChange={e=>updateMaterial({...material, specification:{...spec, [k]:{...spec[k], max:e.target.value}}})}/></div></div>)}</div>
+            <Card title={t('device_title')} icon="zap" color="text-emerald-600">
+                <div className="space-y-2">{['ivl','life'].map(k=><div key={k} className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-200"><span className="text-xs uppercase text-slate-500">{k === 'ivl' ? t('eff') : t('life')}</span><div className="flex gap-2 items-center"><input disabled={readOnly} className="w-14 bg-white border border-slate-300 rounded px-2 text-center text-xs outline-none text-slate-700" placeholder={t('min')} value={spec[k]?.min || ''} onChange={e=>updateMaterial({...material, specification:{...spec, [k]:{...spec[k], min:e.target.value}}})}/><span className="text-slate-400 text-xs">~</span><input disabled={readOnly} className="w-14 bg-white border border-slate-300 rounded px-2 text-center text-xs outline-none text-slate-700" placeholder={t('max')} value={spec[k]?.max || ''} onChange={e=>updateMaterial({...material, specification:{...spec, [k]:{...spec[k], max:e.target.value}}})}/></div></div>)}</div>
             </Card>
             {/* [추가] DSC Spec Card */}
-            <Card title="Thermal (DSC)" icon="thermometer" color="text-purple-600">
-                <div className="space-y-2"><div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-200"><span className="text-xs uppercase text-slate-500">Ref</span><div className="flex gap-2"><input disabled={readOnly} className="w-16 bg-white border border-slate-300 rounded px-2 text-right text-xs" placeholder="Ref" value={spec.dsc?.ref || ''} onChange={e=>updateMaterial({...material, specification:{...spec, dsc:{...spec.dsc, ref:e.target.value}}})}/><input disabled={readOnly} className="w-12 bg-white border border-slate-300 rounded px-1 text-center text-xs" placeholder="±%" value={spec.dsc?.range || ''} onChange={e=>updateMaterial({...material, specification:{...spec, dsc:{...spec.dsc, range:e.target.value}}})}/></div></div></div>
+            <Card title={t('thermal_title')} icon="thermometer" color="text-purple-600">
+                <div className="space-y-2"><div className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-200"><span className="text-xs uppercase text-slate-500">{t('ref')}</span><div className="flex gap-2"><input disabled={readOnly} className="w-16 bg-white border border-slate-300 rounded px-2 text-right text-xs" placeholder={t('ref')} value={spec.dsc?.ref || ''} onChange={e=>updateMaterial({...material, specification:{...spec, dsc:{...spec.dsc, ref:e.target.value}}})}/><input disabled={readOnly} className="w-12 bg-white border border-slate-300 rounded px-1 text-center text-xs" placeholder={t('range_pct')} value={spec.dsc?.range || ''} onChange={e=>updateMaterial({...material, specification:{...spec, dsc:{...spec.dsc, range:e.target.value}}})}/></div></div></div>
             </Card>
             <div className="col-span-1 md:col-span-2">
-                <Card title="Metal Spec (ppm)" icon="alert-triangle" color="text-slate-600">
+                <Card title={t('metal_title')} icon="alert-triangle" color="text-slate-600">
                     <div className="flex flex-wrap gap-2 mb-4">
                         {spec.metalElements.map(el => (
                             <div key={el} className="bg-slate-50 p-2 rounded text-center border border-slate-200 relative group min-w-[70px]">
@@ -45,7 +121,7 @@ export const SpecificationTab = ({ material, updateMaterial, readOnly }) => {
                             </div>
                         ))}
                     </div>
-                    {!readOnly && <div className="flex gap-2 items-center pt-2 border-t border-slate-100"><input className="bg-white border border-slate-300 rounded px-3 py-1.5 text-xs outline-none w-24" placeholder="e.g. Zn" value={newMetal} onChange={e=>setNewMetal(e.target.value)} /><button onClick={addMetal} className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-700">Add Type</button></div>}
+                    {!readOnly && <div className="flex gap-2 items-center pt-2 border-t border-slate-100"><input className="bg-white border border-slate-300 rounded px-3 py-1.5 text-xs outline-none w-24" placeholder={t('ph_metal')} value={newMetal} onChange={e=>setNewMetal(e.target.value)} /><button onClick={addMetal} className="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-slate-700">{t('add_type')}</button></div>}
                 </Card>
             </div>
         </div>
